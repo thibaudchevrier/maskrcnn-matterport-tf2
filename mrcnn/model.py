@@ -20,6 +20,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
+import mlflow
 
 from mrcnn import utils
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
@@ -2734,6 +2735,10 @@ class MaskRCNN():
         
         self.config.save_config(dir_path)
         self.keras_model.save(dir_path)
+
+    def save_mlflow(self, dir_path):
+        mlflow.keras.save_model(self.keras_model, dir_path)
+
 
 
 ############################################################

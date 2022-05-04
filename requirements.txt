@@ -4,6 +4,7 @@ Pillow
 cython
 matplotlib
 scikit-image==0.16.2
+mlflow
 tensorflow==2.4.1
 opencv-python
 h5py==2.10.0

@@ -2739,6 +2739,8 @@ class MaskRCNN():
     def save_mlflow(self, dir_path):
         mlflow.keras.save_model(self.keras_model, dir_path)
 
+    def set_keras_model(self, dir_path):
+        self.keras_model = mlflow.keras.load_model(dir_path)
 
 
 ############################################################

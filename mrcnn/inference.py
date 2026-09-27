@@ -16,8 +16,17 @@ import numpy as np
 import skimage.transform
 
 
-def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
-           preserve_range=False, anti_aliasing=False, anti_aliasing_sigma=None):
+def resize(
+    image,
+    output_shape,
+    order=1,
+    mode="constant",
+    cval=0,
+    clip=True,
+    preserve_range=False,
+    anti_aliasing=False,
+    anti_aliasing_sigma=None,
+):
     """A wrapper for Scikit-Image resize().
 
     Scikit-Image generates warnings on every call to resize() if it doesn't
@@ -26,10 +35,16 @@ def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
     version. And it provides a central place to control resizing defaults.
     """
     return skimage.transform.resize(
-        image, output_shape,
-        order=order, mode=mode, cval=cval, clip=clip,
-        preserve_range=preserve_range, anti_aliasing=anti_aliasing,
-        anti_aliasing_sigma=anti_aliasing_sigma)
+        image,
+        output_shape,
+        order=order,
+        mode=mode,
+        cval=cval,
+        clip=clip,
+        preserve_range=preserve_range,
+        anti_aliasing=anti_aliasing,
+        anti_aliasing_sigma=anti_aliasing_sigma,
+    )
 
 
 def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square"):
@@ -55,7 +70,8 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
               size min_dim x min_dim. Can be used in training only.
               max_dim is not used in this mode.
 
-    Returns:
+    Returns
+    -------
     image: the resized image
     window: (y1, x1, y2, x2). If max_dim is provided, padding might
         be inserted in the returned image. If so, this window is the
@@ -91,8 +107,7 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
 
     # Resize image using bilinear interpolation
     if scale != 1:
-        image = resize(image, (round(h * scale), round(w * scale)),
-                       preserve_range=True)
+        image = resize(image, (round(h * scale), round(w * scale)), preserve_range=True)
 
     # Need padding or cropping?
     if mode == "square":
@@ -103,7 +118,7 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
         left_pad = (max_dim - w) // 2
         right_pad = max_dim - w - left_pad
         padding = [(top_pad, bottom_pad), (left_pad, right_pad), (0, 0)]
-        image = np.pad(image, padding, mode='constant', constant_values=0)
+        image = np.pad(image, padding, mode="constant", constant_values=0)
         window = (top_pad, left_pad, h + top_pad, w + left_pad)
     elif mode == "pad64":
         h, w = image.shape[:2]
@@ -124,7 +139,7 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
         else:
             left_pad = right_pad = 0
         padding = [(top_pad, bottom_pad), (left_pad, right_pad), (0, 0)]
-        image = np.pad(image, padding, mode='constant', constant_values=0)
+        image = np.pad(image, padding, mode="constant", constant_values=0)
         window = (top_pad, left_pad, h + top_pad, w + left_pad)
     elif mode == "crop":
         # Pick a random crop
@@ -132,10 +147,10 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
         y = random.randint(0, (h - min_dim))
         x = random.randint(0, (w - min_dim))
         crop = (y, x, min_dim, min_dim)
-        image = image[y:y + min_dim, x:x + min_dim]
+        image = image[y : y + min_dim, x : x + min_dim]
         window = (0, 0, min_dim, min_dim)
     else:
-        raise Exception("Mode {} not supported".format(mode))
+        raise Exception(f"Mode {mode} not supported")
     return image.astype(image_dtype), window, scale, padding, crop
 
 
@@ -147,7 +162,8 @@ def norm_boxes(boxes, shape):
     Note: In pixel coordinates (y2, x2) is outside the box. But in normalized
     coordinates it's inside the box.
 
-    Returns:
+    Returns
+    -------
         [N, (y1, x1, y2, x2)] in normalized coordinates
     """
     h, w = shape
@@ -164,7 +180,8 @@ def denorm_boxes(boxes, shape):
     Note: In pixel coordinates (y2, x2) is outside the box. But in normalized
     coordinates it's inside the box.
 
-    Returns:
+    Returns
+    -------
         [N, (y1, x1, y2, x2)] in pixel coordinates
     """
     h, w = shape
@@ -221,23 +238,21 @@ def generate_anchors(scales, ratios, shape, feature_stride, anchor_stride):
     box_heights, box_centers_y = np.meshgrid(heights, shifts_y)
 
     # Reshape to get a list of (y, x) and a list of (h, w)
-    box_centers = np.stack(
-        [box_centers_y, box_centers_x], axis=2).reshape([-1, 2])
+    box_centers = np.stack([box_centers_y, box_centers_x], axis=2).reshape([-1, 2])
     box_sizes = np.stack([box_heights, box_widths], axis=2).reshape([-1, 2])
 
     # Convert to corner coordinates (y1, x1, y2, x2)
-    boxes = np.concatenate([box_centers - 0.5 * box_sizes,
-                            box_centers + 0.5 * box_sizes], axis=1)
+    boxes = np.concatenate([box_centers - 0.5 * box_sizes, box_centers + 0.5 * box_sizes], axis=1)
     return boxes
 
 
-def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides,
-                             anchor_stride):
+def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides, anchor_stride):
     """Generate anchors at different levels of a feature pyramid. Each scale
     is associated with a level of the pyramid, but each ratio is used in
     all levels of the pyramid.
 
-    Returns:
+    Returns
+    -------
     anchors: [N, (y1, x1, y2, x2)]. All generated anchors in one array. Sorted
         with the same order of the given scales. So, anchors of scale[0] come
         first, then anchors of scale[1], and so on.
@@ -246,15 +261,19 @@ def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides,
     # [anchor_count, (y1, x1, y2, x2)]
     anchors = []
     for i in range(len(scales)):
-        anchors.append(generate_anchors(scales[i], ratios, feature_shapes[i],
-                                        feature_strides[i], anchor_stride))
+        anchors.append(
+            generate_anchors(
+                scales[i], ratios, feature_shapes[i], feature_strides[i], anchor_stride
+            )
+        )
     return np.concatenate(anchors, axis=0)
 
 
 def compute_backbone_shapes(config, image_shape):
     """Computes the width and height of each stage of the backbone network.
 
-    Returns:
+    Returns
+    -------
         [N, (height, width)]. Where N is the number of stages
     """
     if callable(config.BACKBONE):
@@ -263,13 +282,16 @@ def compute_backbone_shapes(config, image_shape):
     # Currently supports ResNet only
     assert config.BACKBONE in ["resnet50", "resnet101"]
     return np.array(
-        [[int(math.ceil(image_shape[0] / stride)),
-            int(math.ceil(image_shape[1] / stride))]
-            for stride in config.BACKBONE_STRIDES])
+        [
+            [int(math.ceil(image_shape[0] / stride)), int(math.ceil(image_shape[1] / stride))]
+            for stride in config.BACKBONE_STRIDES
+        ]
+    )
 
 
-def compose_image_meta(image_id, original_image_shape, image_shape,
-                       window, scale, active_class_ids):
+def compose_image_meta(
+    image_id, original_image_shape, image_shape, window, scale, active_class_ids
+):
     """Takes attributes of an image and puts them in one 1D array.
 
     image_id: An int ID of the image. Useful for debugging.
@@ -283,12 +305,12 @@ def compose_image_meta(image_id, original_image_shape, image_shape,
         where not all classes are present in all datasets.
     """
     meta = np.array(
-        [image_id] +                  # size=1
-        list(original_image_shape) +  # size=3
-        list(image_shape) +           # size=3
-        list(window) +                # size=4 (y1, x1, y2, x2) in image cooredinates
-        [scale] +                     # size=1
-        list(active_class_ids)        # size=num_classes
+        [image_id]  # size=1
+        + list(original_image_shape)  # size=3
+        + list(image_shape)  # size=3
+        + list(window)  # size=4 (y1, x1, y2, x2) in image cooredinates
+        + [scale]  # size=1
+        + list(active_class_ids)  # size=num_classes
     )
     return meta
 
@@ -351,11 +373,17 @@ def mold_inputs(images, config):
             min_dim=config.IMAGE_MIN_DIM,
             min_scale=config.IMAGE_MIN_SCALE,
             max_dim=config.IMAGE_MAX_DIM,
-            mode=config.IMAGE_RESIZE_MODE)
+            mode=config.IMAGE_RESIZE_MODE,
+        )
         molded_image = mold_image(molded_image, config)
         image_meta = compose_image_meta(
-            0, image.shape, molded_image.shape, window, scale,
-            np.zeros([config.NUM_CLASSES], dtype=np.int32))
+            0,
+            image.shape,
+            molded_image.shape,
+            window,
+            scale,
+            np.zeros([config.NUM_CLASSES], dtype=np.int32),
+        )
         molded_images.append(molded_image)
         windows.append(window)
         image_metas.append(image_meta)
@@ -370,11 +398,11 @@ def pyramid_anchors(config, image_shape):
         config.RPN_ANCHOR_RATIOS,
         backbone_shapes,
         config.BACKBONE_STRIDES,
-        config.RPN_ANCHOR_STRIDE)
+        config.RPN_ANCHOR_STRIDE,
+    )
 
 
-def unmold_detections(detections, mrcnn_mask, original_image_shape,
-                      image_shape, window):
+def unmold_detections(detections, mrcnn_mask, original_image_shape, image_shape, window):
     """Reformats the detections of one image from the format of the neural
     network output to a format suitable for use in the rest of the
     application.
@@ -386,7 +414,8 @@ def unmold_detections(detections, mrcnn_mask, original_image_shape,
     window: [y1, x1, y2, x2] Pixel coordinates of box in the image where the real
             image is excluding the padding.
 
-    Returns:
+    Returns
+    -------
     boxes: [N, (y1, x1, y2, x2)] Bounding boxes in pixels
     class_ids: [N] Integer class IDs for each bounding box
     scores: [N] Float probability scores of the class_id
@@ -418,8 +447,7 @@ def unmold_detections(detections, mrcnn_mask, original_image_shape,
 
     # Filter out detections with zero area. Happens in early training when
     # network weights are still random
-    exclude_ix = np.where(
-        (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
+    exclude_ix = np.where((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
     if exclude_ix.shape[0] > 0:
         boxes = np.delete(boxes, exclude_ix, axis=0)
         class_ids = np.delete(class_ids, exclude_ix, axis=0)
@@ -433,7 +461,8 @@ def unmold_detections(detections, mrcnn_mask, original_image_shape,
         # Convert neural network mask to full size mask
         full_mask = unmold_mask(masks[i], boxes[i], original_image_shape)
         full_masks.append(full_mask)
-    full_masks = np.stack(full_masks, axis=-1)\
-        if full_masks else np.empty(original_image_shape[:2] + (0,))
+    full_masks = (
+        np.stack(full_masks, axis=-1) if full_masks else np.empty(original_image_shape[:2] + (0,))
+    )
 
     return boxes, class_ids, scores, full_masks

@@ -42,7 +42,8 @@ class SavedModelPredictor:
 
     def detect(self, image):
         """image: [H, W, 3] RGB. Returns a dict like ``MaskRCNN.detect``: rois [N, (y1, x1, y2,
-        x2)], class_ids [N], scores [N], masks [H, W, N], in original image coordinates."""
+        x2)], class_ids [N], scores [N], masks [H, W, N], in original image coordinates.
+        """
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError(f"Expected an RGB image of shape [H, W, 3], got {image.shape}")
         molded, metas, windows = inference.mold_inputs([image], self.config)

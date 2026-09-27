@@ -33,10 +33,43 @@ build-backend = "hatchling.build"
 packages = ["mrcnn"]
 
 [dependency-groups]
-dev = ["pytest", "commitizen>=4.19", "pre-commit>=4"]
+dev = [
+    "pytest",
+    "commitizen>=4.19",
+    "pre-commit>=4",
+    "ruff>=0.16.9",
+    "pydoclint>=0.10.0",
+    "pylint>=4.0.9",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# Docstring examples are tests too.
+testpaths = ["mrcnn", "tests"]
+addopts = "--doctest-modules"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pyupgrade, bugbear, comprehensions, simplify, docstrings
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mrcnn"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+# Every parameter, return value and raised exception is documented (numpy style). The Matterport
+# code predates type hints: types are documented in docstrings, not checked against annotations.
+[tool.pydoclint]
+style = "numpy"
+exclude = '\.venv|tests'
+skip-checking-short-docstrings = false
+arg-type-hints-in-signature = false
+arg-type-hints-in-docstring = true
+check-return-types = false
 
 [tool.commitizen]
 name = "cz_conventional_commits"

@@ -47,7 +47,10 @@ jobs:
           fi
       - name: Push the bump commit and tag
         if: steps.bump.outputs.released == 'true'
-        run: git push origin HEAD:main --follow-tags
+        # Explicit tag push: --follow-tags would skip lightweight tags.
+        run: |
+          git push origin HEAD:main
+          git push origin "v${{ steps.bump.outputs.version }}"
       - name: Build wheel and sdist
         if: steps.bump.outputs.released == 'true'
         run: uv build

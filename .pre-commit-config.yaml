@@ -1,0 +1,9 @@
+# Install once: uv run pre-commit install --hook-type commit-msg
+repos:
+  - repo: local
+    hooks:
+      - id: commitizen
+        name: conventional commit message
+        entry: uv run cz check --allow-abort --commit-msg-file
+        language: system
+        stages: [commit-msg]

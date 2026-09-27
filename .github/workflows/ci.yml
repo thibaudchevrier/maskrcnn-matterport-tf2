@@ -13,6 +13,20 @@ permissions:
   contents: read
 
 jobs:
+  commits:
+    name: Conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Every commit of the PR follows Conventional Commits
+        run: >-
+          uvx --from commitizen==4.19.0 cz check
+          --rev-range ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+
   smoke-train:
     name: Smoke training (TF 2.15)
     runs-on: ubuntu-latest

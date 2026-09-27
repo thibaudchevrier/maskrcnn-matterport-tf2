@@ -62,9 +62,27 @@ inference.save("export/")                  # config.json + TF SavedModel, for se
 COCO starting weights: `mask_rcnn_coco.h5` from the
 [Matterport v2.0 release](https://github.com/matterport/Mask_RCNN/releases/tag/v2.0).
 
+Each release's wheel and sdist are also attached to its
+[GitHub Release](https://github.com/thibaudchevrier/maskrcnn-matterport-tf2/releases), e.g.
+`uv add https://github.com/thibaudchevrier/maskrcnn-matterport-tf2/releases/download/v0.2.0/maskrcnn_matterport-0.2.0-py3-none-any.whl`.
+(GitHub Packages has no Python registry, so releases carry the built packages.)
+
 ## Development
 
 ```bash
 uv sync
+uv run pre-commit install --hook-type commit-msg   # once: checks commit messages locally
 uv run pytest    # trains a tiny model on synthetic shapes, checkpoints it, reloads it for detection
 ```
+
+### Commits, versions and releases
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+(`feat: ...`, `fix(utils): ...`, `docs: ...`), checked locally by the hook and on every PR by CI.
+`uv run cz commit` writes one interactively.
+
+Releases are automatic. On every merge to `main`, [commitizen](https://commitizen-tools.github.io/commitizen/)
+reads the commits since the last tag and, if there is a `feat` (minor), `fix`/`perf` (patch) or a
+breaking change (minor while < 1.0), bumps the version in `pyproject.toml` and `uv.lock`, updates
+`CHANGELOG.md`, tags `vX.Y.Z` and publishes a GitHub Release with the wheel and sdist. Other
+types (`docs`, `ci`, `refactor`, `test`, `chore`...) never trigger a release.

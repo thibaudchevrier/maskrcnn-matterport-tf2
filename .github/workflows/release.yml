@@ -1,0 +1,60 @@
+name: Release
+
+# On every push to main, commitizen reads the Conventional Commits since the last tag:
+# feat -> minor, fix/perf -> patch (breaking changes -> minor while < 1.0), anything else -> no
+# release. When there is a bump it updates pyproject.toml, uv.lock and CHANGELOG.md, commits,
+# tags vX.Y.Z, then publishes a GitHub Release with the changelog entry, the wheel and the sdist.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  COMMITIZEN: commitizen==4.19.0
+
+jobs:
+  release:
+    # The bump commit pushed below must not start another release.
+    if: ${{ !startsWith(github.event.head_commit.message, 'bump:') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Bump version and changelog
+        id: bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          before="$(uvx --from "$COMMITIZEN" cz version --project)"
+          # exit 3 = no commits since the last tag, 21 = no commit worth a release
+          uvx --from "$COMMITIZEN" cz --no-raise 3,21 bump --yes --changelog-to-stdout > release-notes.md
+          after="$(uvx --from "$COMMITIZEN" cz version --project)"
+          echo "version=$after" >> "$GITHUB_OUTPUT"
+          if [ "$before" != "$after" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No release: no feat/fix/perf commit since v$before."
+          fi
+      - name: Push the bump commit and tag
+        if: steps.bump.outputs.released == 'true'
+        run: git push origin HEAD:main --follow-tags
+      - name: Build wheel and sdist
+        if: steps.bump.outputs.released == 'true'
+        run: uv build
+      - name: Publish the GitHub Release
+        if: steps.bump.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.bump.outputs.version }}" dist/* \
+            --title "v${{ steps.bump.outputs.version }}" --notes-file release-notes.md

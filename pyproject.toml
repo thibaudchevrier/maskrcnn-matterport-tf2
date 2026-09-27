@@ -27,7 +27,14 @@ build-backend = "hatchling.build"
 packages = ["mrcnn"]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "commitizen>=4.19", "pre-commit>=4"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "uv"          # bumps pyproject.toml and uv.lock together
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true        # breaking changes bump the minor version while < 1.0

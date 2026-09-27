@@ -20,12 +20,9 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
-import mlflow
 
 from mrcnn import utils
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
-from distutils.version import LooseVersion
-assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 
 tf.compat.v1.disable_eager_execution()
 
@@ -1268,7 +1265,7 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
         assert image.shape == image_shape, "Augmentation shouldn't change image size"
         assert mask.shape == mask_shape, "Augmentation shouldn't change mask size"
         # Change mask back to bool
-        mask = mask.astype(np.bool)
+        mask = mask.astype(bool)
 
     # Note that some boxes might be all zeros if the corresponding mask got cropped out.
     # and here is to filter them out
@@ -2163,7 +2160,7 @@ class MaskRCNN():
         metrics. Then calls the Keras compile() function.
         """
         # Optimizer object
-        optimizer = tf.keras.optimizers.SGD(
+        optimizer = tf.keras.optimizers.legacy.SGD(
             lr=learning_rate, momentum=momentum,
             clipnorm=self.config.GRADIENT_CLIP_NORM)
         # Add Losses
@@ -2735,12 +2732,6 @@ class MaskRCNN():
         
         self.config.save_config(dir_path)
         self.keras_model.save(dir_path)
-
-    def save_mlflow(self, dir_path):
-        mlflow.keras.save_model(self.keras_model, dir_path)
-
-    def set_keras_model(self, dir_path):
-        self.keras_model = mlflow.keras.load_model(dir_path)
 
 
 ############################################################

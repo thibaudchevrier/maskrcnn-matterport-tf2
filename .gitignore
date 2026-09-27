@@ -1,3 +1,7 @@
 desktop.ini
+.DS_Store
+__pycache__/
 *.pyc
-__pychache__
+.venv/
+.pytest_cache/
+logs/

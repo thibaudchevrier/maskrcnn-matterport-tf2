@@ -94,7 +94,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 `uv run cz commit` writes one interactively.
 
 Releases are automatic. On every merge to `main`, [commitizen](https://commitizen-tools.github.io/commitizen/)
-reads the commits since the last tag and, if there is a `feat` (minor), `fix`/`perf` (patch) or a
+reads the commits since the last tag and, if there is a `feat` (minor), `fix`/`perf`/`refactor` (patch) or a
 breaking change (minor while < 1.0), bumps the version in `pyproject.toml` and `uv.lock`, updates
 `CHANGELOG.md`, tags `vX.Y.Z` and publishes a GitHub Release with the wheel and sdist. Other
-types (`docs`, `ci`, `refactor`, `test`, `chore`...) never trigger a release.
+types (`docs`, `ci`, `test`, `build`, `chore`...) never trigger a release.

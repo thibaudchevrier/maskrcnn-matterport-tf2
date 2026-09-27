@@ -25,7 +25,7 @@ ROOT_DIR = os.path.abspath("../")
 
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
-from mrcnn import utils
+from mrcnn import inference, utils
 
 
 ############################################################
@@ -278,7 +278,7 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
                     color='w', size=11, backgroundcolor="none")
 
             # Mask
-            m = utils.unmold_mask(mask[id], rois[id]
+            m = inference.unmold_mask(mask[id], rois[id]
                                   [:4].astype(np.int32), image.shape)
             masked_image = apply_mask(masked_image, m, color)
 

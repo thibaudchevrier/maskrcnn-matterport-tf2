@@ -1,22 +1,28 @@
 [project]
 name = "maskrcnn-matterport"
 version = "0.2.0"
-description = "Matterport Mask R-CNN (TF2 graph-mode port), packaged for TensorFlow 2.15 / Keras 2"
+description = "Matterport Mask R-CNN (TF2 graph-mode port): training on TensorFlow 2.15, inference anywhere"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-# TensorFlow 2.15 is the last release with Keras 2 built in, which this code needs.
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10"
+# Base install = inference helpers (mrcnn.inference): numpy 1.x or 2.x, no TensorFlow.
 dependencies = [
-    "tensorflow>=2.15,<2.16",
-    "numpy>=1.23,<2",
-    "scipy",
+    "numpy>=1.23",
     "scikit-image>=0.19",
-    "pillow",
-    "h5py",
 ]
 
 [project.optional-dependencies]
+# Training (mrcnn.model): TensorFlow 2.15, the last release with Keras 2 built in (Python < 3.12).
+train = [
+    "tensorflow>=2.15,<2.16; python_version < '3.12'",
+    "numpy<2",
+    "scipy",
+    "pillow",
+    "h5py",
+]
+# Running an exported model (mrcnn.serving): any TensorFlow 2.x that loads the SavedModel.
+serve = ["tensorflow>=2.15"]
 viz = ["matplotlib", "ipython"]
 
 [build-system]
@@ -36,5 +42,6 @@ testpaths = ["tests"]
 name = "cz_conventional_commits"
 version_provider = "uv"          # bumps pyproject.toml and uv.lock together
 tag_format = "v$version"
+annotated_tag = true
 update_changelog_on_bump = true
 major_version_zero = true        # breaking changes bump the minor version while < 1.0

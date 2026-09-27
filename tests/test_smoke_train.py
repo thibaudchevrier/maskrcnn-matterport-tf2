@@ -4,6 +4,9 @@ Guards the compatibility fixes (TF 2.15 / Keras 2, numpy >= 1.24, scikit-image >
 this fails if data loading, graph-mode training, checkpointing or detection breaks.
 """
 
+import subprocess
+import sys
+
 import numpy as np
 
 from mrcnn import config as mconfig
@@ -67,3 +70,23 @@ def test_train_checkpoint_and_detect(tmp_path):
     [result] = inference.detect([train.load_image(0)])
     assert result["masks"].shape[:2] == (128, 128)
     assert result["rois"].shape[1] == 4
+
+    # Export, then serve the export with mrcnn.serving in a fresh process, as a service would
+    # (mrcnn.model switches this process to graph mode): same detections as MaskRCNN.detect.
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    inference.save(str(export_dir))
+    np.save(tmp_path / "image.npy", train.load_image(0))
+    serve = (
+        "import sys, numpy as np; from mrcnn.serving import SavedModelPredictor; "
+        "r = SavedModelPredictor(sys.argv[1]).detect(np.load(sys.argv[2])); "
+        "np.savez(sys.argv[3], **r)"
+    )
+    subprocess.run(
+        [sys.executable, "-c", serve, export_dir, tmp_path / "image.npy", tmp_path / "served.npz"],
+        check=True,
+    )
+    served = np.load(tmp_path / "served.npz")
+    np.testing.assert_allclose(served["scores"], result["scores"], rtol=1e-5)
+    np.testing.assert_array_equal(served["class_ids"], result["class_ids"])
+    np.testing.assert_array_equal(served["masks"], result["masks"])

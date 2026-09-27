@@ -11,7 +11,6 @@ import os
 import random
 import datetime
 import re
-import math
 import logging
 from collections import OrderedDict
 import multiprocessing
@@ -21,7 +20,8 @@ import tensorflow.keras.backend as K
 import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 
-from mrcnn import utils
+from mrcnn import inference, utils
+from mrcnn.inference import compose_image_meta, compute_backbone_shapes, mold_image
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
 
 tf.compat.v1.disable_eager_execution()
@@ -63,21 +63,6 @@ class BatchNorm(KL.BatchNormalization):
         return super(self.__class__, self).call(inputs, training=training)
 
 
-def compute_backbone_shapes(config, image_shape):
-    """Computes the width and height of each stage of the backbone network.
-
-    Returns:
-        [N, (height, width)]. Where N is the number of stages
-    """
-    if callable(config.BACKBONE):
-        return config.COMPUTE_BACKBONE_SHAPE(image_shape)
-
-    # Currently supports ResNet only
-    assert config.BACKBONE in ["resnet50", "resnet101"]
-    return np.array(
-        [[int(math.ceil(image_shape[0] / stride)),
-            int(math.ceil(image_shape[1] / stride))]
-            for stride in config.BACKBONE_STRIDES])
 
 
 ############################################################
@@ -1220,7 +1205,7 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     original_shape = image.shape
-    image, window, scale, padding, crop = utils.resize_image(
+    image, window, scale, padding, crop = inference.resize_image(
         image,
         min_dim=config.IMAGE_MIN_DIM,
         min_scale=config.IMAGE_MIN_SCALE,
@@ -1438,14 +1423,14 @@ def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
             gt_h = gt_y2 - gt_y1
             # Resize mini mask to size of GT box
             placeholder[gt_y1:gt_y2, gt_x1:gt_x2] = \
-                np.round(utils.resize(class_mask, (gt_h, gt_w))).astype(bool)
+                np.round(inference.resize(class_mask, (gt_h, gt_w))).astype(bool)
             # Place the mini batch in the placeholder
             class_mask = placeholder
 
         # Pick part of the mask and resize it
         y1, x1, y2, x2 = rois[i].astype(np.int32)
         m = class_mask[y1:y2, x1:x2]
-        mask = utils.resize(m, config.MASK_SHAPE)
+        mask = inference.resize(m, config.MASK_SHAPE)
         masks[i, :, :, class_id] = mask
 
     return rois, roi_gt_class_ids, bboxes, masks
@@ -1688,7 +1673,7 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
     # Anchors
     # [anchor_count, (y1, x1, y2, x2)]
     backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
-    anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
+    anchors = inference.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
                                              config.RPN_ANCHOR_RATIOS,
                                              backbone_shapes,
                                              config.BACKBONE_STRIDES,
@@ -2381,108 +2366,15 @@ class MaskRCNN():
         self.epoch = max(self.epoch, epochs)
 
     def mold_inputs(self, images):
-        """Takes a list of images and modifies them to the format expected
-        as an input to the neural network.
-        images: List of image matrices [height,width,depth]. Images can have
-            different sizes.
-
-        Returns 3 Numpy matrices:
-        molded_images: [N, h, w, 3]. Images resized and normalized.
-        image_metas: [N, length of meta data]. Details about each image.
-        windows: [N, (y1, x1, y2, x2)]. The portion of the image that has the
-            original image (padding excluded).
-        """
-        molded_images = []
-        image_metas = []
-        windows = []
-        for image in images:
-            # Resize image
-            # TODO: move resizing to mold_image()
-            molded_image, window, scale, padding, crop = utils.resize_image(
-                image,
-                min_dim=self.config.IMAGE_MIN_DIM,
-                min_scale=self.config.IMAGE_MIN_SCALE,
-                max_dim=self.config.IMAGE_MAX_DIM,
-                mode=self.config.IMAGE_RESIZE_MODE)
-            molded_image = mold_image(molded_image, self.config)
-            # Build image_meta
-            image_meta = compose_image_meta(
-                0, image.shape, molded_image.shape, window, scale,
-                np.zeros([self.config.NUM_CLASSES], dtype=np.int32))
-            # Append
-            molded_images.append(molded_image)
-            windows.append(window)
-            image_metas.append(image_meta)
-        # Pack into arrays
-        molded_images = np.stack(molded_images)
-        image_metas = np.stack(image_metas)
-        windows = np.stack(windows)
-        return molded_images, image_metas, windows
+        """Resize and normalize images for the network: see mrcnn.inference.mold_inputs."""
+        return inference.mold_inputs(images, self.config)
 
     def unmold_detections(self, detections, mrcnn_mask, original_image_shape,
                           image_shape, window):
-        """Reformats the detections of one image from the format of the neural
-        network output to a format suitable for use in the rest of the
-        application.
-
-        detections: [N, (y1, x1, y2, x2, class_id, score)] in normalized coordinates
-        mrcnn_mask: [N, height, width, num_classes]
-        original_image_shape: [H, W, C] Original image shape before resizing
-        image_shape: [H, W, C] Shape of the image after resizing and padding
-        window: [y1, x1, y2, x2] Pixel coordinates of box in the image where the real
-                image is excluding the padding.
-
-        Returns:
-        boxes: [N, (y1, x1, y2, x2)] Bounding boxes in pixels
-        class_ids: [N] Integer class IDs for each bounding box
-        scores: [N] Float probability scores of the class_id
-        masks: [height, width, num_instances] Instance masks
-        """
-        # How many detections do we have?
-        # Detections array is padded with zeros. Find the first class_id == 0.
-        zero_ix = np.where(detections[:, 4] == 0)[0]
-        N = zero_ix[0] if zero_ix.shape[0] > 0 else detections.shape[0]
-
-        # Extract boxes, class_ids, scores, and class-specific masks
-        boxes = detections[:N, :4]
-        class_ids = detections[:N, 4].astype(np.int32)
-        scores = detections[:N, 5]
-        masks = mrcnn_mask[np.arange(N), :, :, class_ids]
-
-        # Translate normalized coordinates in the resized image to pixel
-        # coordinates in the original image before resizing
-        window = utils.norm_boxes(window, image_shape[:2])
-        wy1, wx1, wy2, wx2 = window
-        shift = np.array([wy1, wx1, wy1, wx1])
-        wh = wy2 - wy1  # window height
-        ww = wx2 - wx1  # window width
-        scale = np.array([wh, ww, wh, ww])
-        # Convert boxes to normalized coordinates on the window
-        boxes = np.divide(boxes - shift, scale)
-        # Convert boxes to pixel coordinates on the original image
-        boxes = utils.denorm_boxes(boxes, original_image_shape[:2])
-
-        # Filter out detections with zero area. Happens in early training when
-        # network weights are still random
-        exclude_ix = np.where(
-            (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) <= 0)[0]
-        if exclude_ix.shape[0] > 0:
-            boxes = np.delete(boxes, exclude_ix, axis=0)
-            class_ids = np.delete(class_ids, exclude_ix, axis=0)
-            scores = np.delete(scores, exclude_ix, axis=0)
-            masks = np.delete(masks, exclude_ix, axis=0)
-            N = class_ids.shape[0]
-
-        # Resize masks to original image size and set boundary threshold.
-        full_masks = []
-        for i in range(N):
-            # Convert neural network mask to full size mask
-            full_mask = utils.unmold_mask(masks[i], boxes[i], original_image_shape)
-            full_masks.append(full_mask)
-        full_masks = np.stack(full_masks, axis=-1)\
-            if full_masks else np.empty(original_image_shape[:2] + (0,))
-
-        return boxes, class_ids, scores, full_masks
+        """Network outputs of one image -> boxes, class ids, scores, full-size masks.
+        See mrcnn.inference.unmold_detections."""
+        return inference.unmold_detections(detections, mrcnn_mask, original_image_shape,
+                                           image_shape, window)
 
     def detect(self, images, verbose=0):
         """Runs the detection pipeline.
@@ -2608,24 +2500,18 @@ class MaskRCNN():
 
     def get_anchors(self, image_shape):
         """Returns anchor pyramid for the given image size."""
-        backbone_shapes = compute_backbone_shapes(self.config, image_shape)
         # Cache anchors and reuse if image shape is the same
         if not hasattr(self, "_anchor_cache"):
             self._anchor_cache = {}
         if not tuple(image_shape) in self._anchor_cache:
             # Generate Anchors
-            a = utils.generate_pyramid_anchors(
-                self.config.RPN_ANCHOR_SCALES,
-                self.config.RPN_ANCHOR_RATIOS,
-                backbone_shapes,
-                self.config.BACKBONE_STRIDES,
-                self.config.RPN_ANCHOR_STRIDE)
+            a = inference.pyramid_anchors(self.config, image_shape)
             # Keep a copy of the latest anchors in pixel coordinates because
             # it's used in inspect_model notebooks.
             # TODO: Remove this after the notebook are refactored to not use it
             self.anchors = a
             # Normalize coordinates
-            self._anchor_cache[tuple(image_shape)] = utils.norm_boxes(a, image_shape[:2])
+            self._anchor_cache[tuple(image_shape)] = inference.norm_boxes(a, image_shape[:2])
         return self._anchor_cache[tuple(image_shape)]
 
     def ancestor(self, tensor, name, checked=None):
@@ -2738,53 +2624,8 @@ class MaskRCNN():
 #  Data Formatting
 ############################################################
 
-def compose_image_meta(image_id, original_image_shape, image_shape,
-                       window, scale, active_class_ids):
-    """Takes attributes of an image and puts them in one 1D array.
-
-    image_id: An int ID of the image. Useful for debugging.
-    original_image_shape: [H, W, C] before resizing or padding.
-    image_shape: [H, W, C] after resizing and padding
-    window: (y1, x1, y2, x2) in pixels. The area of the image where the real
-            image is (excluding the padding)
-    scale: The scaling factor applied to the original image (float32)
-    active_class_ids: List of class_ids available in the dataset from which
-        the image came. Useful if training on images from multiple datasets
-        where not all classes are present in all datasets.
-    """
-    meta = np.array(
-        [image_id] +                  # size=1
-        list(original_image_shape) +  # size=3
-        list(image_shape) +           # size=3
-        list(window) +                # size=4 (y1, x1, y2, x2) in image cooredinates
-        [scale] +                     # size=1
-        list(active_class_ids)        # size=num_classes
-    )
-    return meta
 
 
-def parse_image_meta(meta):
-    """Parses an array that contains image attributes to its components.
-    See compose_image_meta() for more details.
-
-    meta: [batch, meta length] where meta length depends on NUM_CLASSES
-
-    Returns a dict of the parsed values.
-    """
-    image_id = meta[:, 0]
-    original_image_shape = meta[:, 1:4]
-    image_shape = meta[:, 4:7]
-    window = meta[:, 7:11]  # (y1, x1, y2, x2) window of image in in pixels
-    scale = meta[:, 11]
-    active_class_ids = meta[:, 12:]
-    return {
-        "image_id": image_id.astype(np.int32),
-        "original_image_shape": original_image_shape.astype(np.int32),
-        "image_shape": image_shape.astype(np.int32),
-        "window": window.astype(np.int32),
-        "scale": scale.astype(np.float32),
-        "active_class_ids": active_class_ids.astype(np.int32),
-    }
 
 
 def parse_image_meta_graph(meta):
@@ -2811,17 +2652,8 @@ def parse_image_meta_graph(meta):
     }
 
 
-def mold_image(images, config):
-    """Expects an RGB image (or array of images) and subtracts
-    the mean pixel and converts it to float. Expects image
-    colors in RGB order.
-    """
-    return images.astype(np.float32) - config.MEAN_PIXEL
 
 
-def unmold_image(normalized_images, config):
-    """Takes a image normalized with mold() and returns the original."""
-    return (normalized_images + config.MEAN_PIXEL).astype(np.uint8)
 
 
 ############################################################

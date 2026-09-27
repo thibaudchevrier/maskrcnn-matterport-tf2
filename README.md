@@ -7,33 +7,40 @@ This is a **model library**: it defines the network, its training loop and infer
 nothing about datasets, experiment tracking or serving. Those live in the project that uses it
 (for the fashion model: [fashion-seg-train](https://github.com/thibaudchevrier/fashion-seg-train)).
 
-## Compatibility
+## Install
 
-| | Supported |
-|---|---|
-| Python | 3.10, 3.11 |
-| TensorFlow | 2.15 (the last release with Keras 2 built in; Keras 3 is not supported) |
-| numpy | 1.x (< 2, required by TensorFlow 2.15) |
-| Platforms | Linux x86_64, macOS arm64 (CPU) |
+The package is split by use, so a service running an exported model doesn't need the 2021
+training stack:
 
-Changes from the 2021 port (v0.2.0):
+| Install | Provides | Requires |
+|---------|----------|----------|
+| `maskrcnn-matterport` | `mrcnn.inference`: resizing, anchors, image meta, unmolding detections | numpy (1.x or 2.x), scikit-image; any Python ≥ 3.10 |
+| `maskrcnn-matterport[serve]` | + `mrcnn.serving.SavedModelPredictor`: run a model exported with `MaskRCNN.save` | any TensorFlow 2.x that loads the SavedModel |
+| `maskrcnn-matterport[train]` | + `mrcnn.model` / `mrcnn.utils`: build and train | TensorFlow 2.15 (last with Keras 2), numpy 1.x, Python 3.10–3.11 |
+| `maskrcnn-matterport[viz]` | + `mrcnn.visualize` plotting helpers | matplotlib |
 
-- installable package (`pyproject.toml`), MIT `LICENSE` restored;
-- no hard dependency on MLflow (tracking belongs to the training project);
-- `distutils` removed (gone in Python 3.12), `np.bool` → `bool` (removed in numpy 1.24);
-- masks cast to float before resizing (scikit-image ≥ 0.19 refuses to interpolate booleans);
-- legacy SGD optimizer, required by the graph-mode (`tf.compat.v1`) training loop on TF ≥ 2.11.
+```toml
+# pyproject.toml of a consumer
+dependencies = ["maskrcnn-matterport[train]"]   # or [serve], or no extra
+
+[tool.uv.sources]
+maskrcnn-matterport = { git = "https://github.com/thibaudchevrier/maskrcnn-matterport-tf2", tag = "v0.3.0" }
+```
+
+Each release also attaches its wheel and sdist to the
+[GitHub Release](https://github.com/thibaudchevrier/maskrcnn-matterport-tf2/releases); a wheel URL
+works as a source too. GitHub Packages has no Python registry, so releases carry the built packages.
+
+Changes from the 2021 port:
+
+- installable package, MIT `LICENSE` restored, no hard dependency on MLflow (v0.2.0);
+- `distutils` and `np.bool` removed, masks cast to float before resizing, legacy SGD optimizer for
+  the graph-mode training loop on TF ≥ 2.11 (v0.2.0);
+- inference helpers moved to `mrcnn.inference` (still importable from `mrcnn.utils` / `mrcnn.model`),
+  `mrcnn.serving` added, training dependencies moved to the `train` extra (v0.3.0).
 
 Training augmentation still expects [imgaug](https://github.com/aleju/imgaug)-style augmenters.
 imgaug itself is unmaintained and not a dependency; pass `augmentation=None` or a compatible object.
-
-## Install
-
-```bash
-uv add "maskrcnn-matterport @ git+https://github.com/thibaudchevrier/maskrcnn-matterport-tf2@v0.2.0"
-# optional plotting helpers (mrcnn.visualize):
-uv add "maskrcnn-matterport[viz] @ git+https://github.com/thibaudchevrier/maskrcnn-matterport-tf2@v0.2.0"
-```
 
 ## Usage
 
@@ -59,20 +66,23 @@ result = inference.detect([image])[0]      # rois, class_ids, scores, masks
 inference.save("export/")                  # config.json + TF SavedModel, for serving
 ```
 
+Serving an export, without the training stack (`[serve]` extra):
+
+```python
+from mrcnn.serving import SavedModelPredictor
+
+result = SavedModelPredictor("export/").detect(image)   # rois, class_ids, scores, masks
+```
+
 COCO starting weights: `mask_rcnn_coco.h5` from the
 [Matterport v2.0 release](https://github.com/matterport/Mask_RCNN/releases/tag/v2.0).
-
-Each release's wheel and sdist are also attached to its
-[GitHub Release](https://github.com/thibaudchevrier/maskrcnn-matterport-tf2/releases), e.g.
-`uv add https://github.com/thibaudchevrier/maskrcnn-matterport-tf2/releases/download/v0.2.0/maskrcnn_matterport-0.2.0-py3-none-any.whl`.
-(GitHub Packages has no Python registry, so releases carry the built packages.)
 
 ## Development
 
 ```bash
-uv sync
+uv sync --extra train
 uv run pre-commit install --hook-type commit-msg   # once: checks commit messages locally
-uv run pytest    # trains a tiny model on synthetic shapes, checkpoints it, reloads it for detection
+uv run pytest    # trains a tiny model, checkpoints, detects, exports and serves the export
 ```
 
 ### Commits, versions and releases

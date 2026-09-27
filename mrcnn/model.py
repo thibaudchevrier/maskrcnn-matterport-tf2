@@ -11,7 +11,6 @@ import os
 import random
 import datetime
 import re
-import math
 import logging
 from collections import OrderedDict
 import multiprocessing
@@ -22,14 +21,7 @@ import tensorflow.keras.layers as KL
 import tensorflow.keras.models as KM
 
 from mrcnn import inference, utils
-# Moved to mrcnn.inference (no TensorFlow); re-exported for existing callers.
-from mrcnn.inference import (  # noqa: F401
-    compose_image_meta,
-    compute_backbone_shapes,
-    mold_image,
-    parse_image_meta,
-    unmold_image,
-)
+from mrcnn.inference import compose_image_meta, compute_backbone_shapes, mold_image
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
 
 tf.compat.v1.disable_eager_execution()
@@ -1213,7 +1205,7 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     original_shape = image.shape
-    image, window, scale, padding, crop = utils.resize_image(
+    image, window, scale, padding, crop = inference.resize_image(
         image,
         min_dim=config.IMAGE_MIN_DIM,
         min_scale=config.IMAGE_MIN_SCALE,
@@ -1431,14 +1423,14 @@ def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
             gt_h = gt_y2 - gt_y1
             # Resize mini mask to size of GT box
             placeholder[gt_y1:gt_y2, gt_x1:gt_x2] = \
-                np.round(utils.resize(class_mask, (gt_h, gt_w))).astype(bool)
+                np.round(inference.resize(class_mask, (gt_h, gt_w))).astype(bool)
             # Place the mini batch in the placeholder
             class_mask = placeholder
 
         # Pick part of the mask and resize it
         y1, x1, y2, x2 = rois[i].astype(np.int32)
         m = class_mask[y1:y2, x1:x2]
-        mask = utils.resize(m, config.MASK_SHAPE)
+        mask = inference.resize(m, config.MASK_SHAPE)
         masks[i, :, :, class_id] = mask
 
     return rois, roi_gt_class_ids, bboxes, masks
@@ -1681,7 +1673,7 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
     # Anchors
     # [anchor_count, (y1, x1, y2, x2)]
     backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
-    anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
+    anchors = inference.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
                                              config.RPN_ANCHOR_RATIOS,
                                              backbone_shapes,
                                              config.BACKBONE_STRIDES,
@@ -2519,7 +2511,7 @@ class MaskRCNN():
             # TODO: Remove this after the notebook are refactored to not use it
             self.anchors = a
             # Normalize coordinates
-            self._anchor_cache[tuple(image_shape)] = utils.norm_boxes(a, image_shape[:2])
+            self._anchor_cache[tuple(image_shape)] = inference.norm_boxes(a, image_shape[:2])
         return self._anchor_cache[tuple(image_shape)]
 
     def ancestor(self, tensor, name, checked=None):

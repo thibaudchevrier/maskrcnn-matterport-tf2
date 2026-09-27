@@ -36,8 +36,10 @@ Changes from the 2021 port:
 - installable package, MIT `LICENSE` restored, no hard dependency on MLflow (v0.2.0);
 - `distutils` and `np.bool` removed, masks cast to float before resizing, legacy SGD optimizer for
   the graph-mode training loop on TF ≥ 2.11 (v0.2.0);
-- inference helpers moved to `mrcnn.inference` (still importable from `mrcnn.utils` / `mrcnn.model`),
-  `mrcnn.serving` added, training dependencies moved to the `train` extra (v0.3.0).
+- inference helpers (`resize_image`, `norm_boxes`, `mold_image`, `compose_image_meta`,
+  `unmold_mask`, anchors...) moved to `mrcnn.inference`: import them from there, no longer from
+  `mrcnn.utils` / `mrcnn.model`. `mrcnn.serving` added, training dependencies moved to the `train`
+  extra (v0.3.0).
 
 Training augmentation still expects [imgaug](https://github.com/aleju/imgaug)-style augmenters.
 imgaug itself is unmaintained and not a dependency; pass `augmentation=None` or a compatible object.

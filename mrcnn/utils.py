@@ -7,11 +7,7 @@ Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
 
-import sys
-import os
 import logging
-import math
-import random
 import numpy as np
 import tensorflow as tf
 import scipy
@@ -22,16 +18,7 @@ import urllib.request
 import shutil
 import warnings
 
-# Moved to mrcnn.inference (no TensorFlow); re-exported for existing callers.
-from mrcnn.inference import (  # noqa: F401
-    denorm_boxes,
-    generate_anchors,
-    generate_pyramid_anchors,
-    norm_boxes,
-    resize,
-    resize_image,
-    unmold_mask,
-)
+from mrcnn.inference import resize
 
 # URL from which to download the latest COCO trained weights
 COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5"

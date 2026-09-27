@@ -1,6 +1,6 @@
 [project]
 name = "maskrcnn-matterport"
-version = "0.2.0"
+version = "0.3.0"
 description = "Matterport Mask R-CNN (TF2 graph-mode port): training on TensorFlow 2.15, inference anywhere"
 readme = "README.md"
 license = "MIT"

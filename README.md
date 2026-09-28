@@ -82,10 +82,17 @@ COCO starting weights: `mask_rcnn_coco.h5` from the
 ## Development
 
 ```bash
-uv sync --extra train
-uv run pre-commit install --hook-type commit-msg   # once: checks commit messages locally
-uv run pytest    # trains a tiny model, checkpoints, detects, exports and serves the export
+make install   # all extras (TensorFlow 2.15, matplotlib) + dev tools
+make hooks     # once: pre-commit and commit-msg git hooks
+make check     # lint (all pre-commit hooks, exactly what CI runs) + tests
 ```
+
+The tests train a tiny model on synthetic shapes, checkpoint it, reload it for detection, export it
+and serve the export with `mrcnn.serving`; docstring examples run as doctests. Code quality is
+defined once, in `.pre-commit-config.yaml`: ruff (format, lint, numpy docstrings), pydoclint
+(every parameter, return and exception documented), pylint (10/10) and hygiene checks. The git
+hooks, `make lint` and CI all run it. Conventions, including the documented exceptions for the
+2021 Matterport code, are in [`CLAUDE.md`](CLAUDE.md).
 
 ### Commits, versions and releases
 

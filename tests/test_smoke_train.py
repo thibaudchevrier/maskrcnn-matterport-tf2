@@ -15,6 +15,8 @@ from mrcnn import utils
 
 
 class SmokeConfig(mconfig.Config):
+    """Tiny configuration: 128 px images, ResNet-50, 2 steps per epoch."""
+
     NAME = "smoke"
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
@@ -29,19 +31,24 @@ class SmokeConfig(mconfig.Config):
 
 
 class ShapesDataset(utils.Dataset):
+    """Synthetic dataset: every image has a square and a bar."""
+
     def load(self, count):
+        """Register the two classes and ``count`` images."""
         self.add_class("shapes", 1, "square")
         self.add_class("shapes", 2, "bar")
         for i in range(count):
             self.add_image("shapes", image_id=i, path=None)
 
     def load_image(self, image_id):
+        """Draw the same square and bar on a gray background."""
         image = np.full((128, 128, 3), 60, np.uint8)
         image[20:70, 30:80] = 200
         image[80:120, 10:110] = 120
         return image
 
     def load_mask(self, image_id):
+        """Return the square and bar masks with their class ids."""
         mask = np.zeros((128, 128, 2), bool)
         mask[20:70, 30:80, 0] = True
         mask[80:120, 10:110, 1] = True
@@ -49,6 +56,7 @@ class ShapesDataset(utils.Dataset):
 
 
 def test_train_checkpoint_and_detect(tmp_path):
+    """Train one epoch, reload the checkpoint, detect, export, and serve the export identically."""
     train, val = ShapesDataset(), ShapesDataset()
     train.load(4)
     train.prepare()
@@ -61,6 +69,8 @@ def test_train_checkpoint_and_detect(tmp_path):
     assert checkpoint.endswith("_0001.h5")
 
     class InferenceConfig(SmokeConfig):
+        """Inference configuration keeping every detection."""
+
         DETECTION_MIN_CONFIDENCE = 0.0
 
     inference = modellib.MaskRCNN(

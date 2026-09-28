@@ -26,11 +26,13 @@ CONFIG = SimpleNamespace(
 
 def test_module_does_not_import_tensorflow():
     # Fresh interpreter: other tests import mrcnn.model (and TensorFlow) in this process.
+    """mrcnn.inference imports without TensorFlow (checked in a fresh interpreter)."""
     code = "import sys, mrcnn.inference; assert 'tensorflow' not in sys.modules"
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_resize_image_square_keeps_aspect_ratio_and_pads():
+    """Square mode keeps the aspect ratio and zero-pads around the image."""
     image = np.full((400, 200, 3), 255, dtype=np.uint8)
     molded, window, scale, _, _ = inference.resize_image(image, 800, 1024, 0, "square")
     assert molded.shape == (1024, 1024, 3)
@@ -41,18 +43,21 @@ def test_resize_image_square_keeps_aspect_ratio_and_pads():
 
 
 def test_box_normalization_roundtrip():
+    """Normalizing then denormalizing boxes gives them back."""
     boxes = np.array([[10, 20, 110, 220], [0, 0, 1024, 1024]])
     normalized = inference.norm_boxes(boxes, (1024, 1024))
     np.testing.assert_array_equal(inference.denorm_boxes(normalized, (1024, 1024)), boxes)
 
 
 def test_pyramid_anchor_count():
+    """The pyramid has 3 anchors per feature map pixel at every level."""
     anchors = inference.pyramid_anchors(CONFIG, (1024, 1024))
     expected = sum(3 * (1024 // s) ** 2 for s in CONFIG.BACKBONE_STRIDES)
     assert anchors.shape == (expected, 4)
 
 
 def test_mold_inputs_shapes():
+    """Molded inputs have the network's image, meta and window shapes."""
     molded, metas, windows = inference.mold_inputs([np.zeros((300, 200, 3), np.uint8)], CONFIG)
     assert molded.shape == (1, 1024, 1024, 3)
     assert metas.shape == (1, 1 + 3 + 3 + 4 + 1 + 47)
@@ -60,6 +65,7 @@ def test_mold_inputs_shapes():
 
 
 def test_unmold_detections_maps_back_to_original_image():
+    """A detection covering the window maps to the whole original image."""
     original, molded_shape = (400, 200, 3), (1024, 1024, 3)
     _, window, _, _, _ = inference.resize_image(np.zeros(original, np.uint8), 800, 1024, 0)
     # One detection covering the full real image, class 5, then zero padding.
@@ -78,6 +84,7 @@ def test_unmold_detections_maps_back_to_original_image():
 
 
 def test_unmold_detections_without_detections():
+    """No detection gives empty boxes and masks of the image size."""
     boxes, _, _, masks = inference.unmold_detections(
         np.zeros((100, 6), np.float32),
         np.zeros((100, 28, 28, 47), np.float32),

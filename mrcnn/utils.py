@@ -1,10 +1,8 @@
-"""
-Mask R-CNN
-Common utility functions and classes.
+"""Common utilities of Mask R-CNN: boxes, masks, the ``Dataset`` base class, evaluation metrics.
 
 Copyright (c) 2017 Matterport, Inc.
-Licensed under the MIT License (see LICENSE for details)
-Written by Waleed Abdulla
+Licensed under the MIT License (see LICENSE for details).
+Written by Waleed Abdulla.
 """
 
 import logging
@@ -13,11 +11,9 @@ import urllib.request
 import warnings
 
 import numpy as np
-import scipy
-import skimage.color
-import skimage.io
-import skimage.transform
 import tensorflow as tf
+from scipy import ndimage
+from skimage import color, io
 
 from mrcnn.inference import resize
 
@@ -31,10 +27,17 @@ COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0
 
 
 def extract_bboxes(mask):
-    """Compute bounding boxes from masks.
-    mask: [height, width, num_instances]. Mask pixels are either 1 or 0.
+    """Compute the bounding box of each instance mask.
 
-    Returns: bbox array [num_instances, (y1, x1, y2, x2)].
+    Parameters
+    ----------
+    mask : np.ndarray
+        ``[height, width, num_instances]`` masks of 0 and 1.
+
+    Returns
+    -------
+    np.ndarray
+        ``[num_instances, (y1, x1, y2, x2)]`` int32 boxes; zeros for empty masks.
     """
     boxes = np.zeros([mask.shape[-1], 4], dtype=np.int32)
     for i in range(mask.shape[-1]):
@@ -57,14 +60,25 @@ def extract_bboxes(mask):
 
 
 def compute_iou(box, boxes, box_area, boxes_area):
-    """Calculates IoU of the given box with the array of the given boxes.
-    box: 1D vector [y1, x1, y2, x2]
-    boxes: [boxes_count, (y1, x1, y2, x2)]
-    box_area: float. the area of 'box'
-    boxes_area: array of length boxes_count.
+    """Compute the IoU of one box with each of several boxes.
 
-    Note: the areas are passed in rather than calculated here for
-    efficiency. Calculate once in the caller to avoid duplicate work.
+    The areas are passed in rather than computed here, so callers compute them once.
+
+    Parameters
+    ----------
+    box : np.ndarray
+        ``[y1, x1, y2, x2]``.
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]``.
+    box_area : float
+        Area of ``box``.
+    boxes_area : np.ndarray
+        ``[N]`` areas of ``boxes``.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N]`` IoU values.
     """
     # Calculate intersection areas
     y1 = np.maximum(box[0], boxes[:, 0])
@@ -78,10 +92,21 @@ def compute_iou(box, boxes, box_area, boxes_area):
 
 
 def compute_overlaps(boxes1, boxes2):
-    """Computes IoU overlaps between two sets of boxes.
-    boxes1, boxes2: [N, (y1, x1, y2, x2)].
+    """Compute the IoU overlaps between two sets of boxes.
 
-    For better performance, pass the largest set first and the smaller second.
+    For better performance, pass the larger set first.
+
+    Parameters
+    ----------
+    boxes1 : np.ndarray
+        ``[N, (y1, x1, y2, x2)]``.
+    boxes2 : np.ndarray
+        ``[M, (y1, x1, y2, x2)]``.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, M]`` IoU overlaps.
     """
     # Areas of anchors and GT boxes
     area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
@@ -97,8 +122,19 @@ def compute_overlaps(boxes1, boxes2):
 
 
 def compute_overlaps_masks(masks1, masks2):
-    """Computes IoU overlaps between two sets of masks.
-    masks1, masks2: [Height, Width, instances]
+    """Compute the IoU overlaps between two sets of masks.
+
+    Parameters
+    ----------
+    masks1 : np.ndarray
+        ``[height, width, N]`` masks.
+    masks2 : np.ndarray
+        ``[height, width, M]`` masks.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, M]`` IoU overlaps; zeros if either set is empty.
     """
     # If either set of masks is empty return empty result
     if masks1.shape[-1] == 0 or masks2.shape[-1] == 0:
@@ -118,10 +154,21 @@ def compute_overlaps_masks(masks1, masks2):
 
 
 def non_max_suppression(boxes, scores, threshold):
-    """Performs non-maximum suppression and returns indices of kept boxes.
-    boxes: [N, (y1, x1, y2, x2)]. Notice that (y2, x2) lays outside the box.
-    scores: 1-D array of box scores.
-    threshold: Float. IoU threshold to use for filtering.
+    """Run non-maximum suppression.
+
+    Parameters
+    ----------
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]``; ``(y2, x2)`` is outside the box.
+    scores : np.ndarray
+        ``[N]`` box scores.
+    threshold : float
+        IoU above which the lower-scored box is dropped.
+
+    Returns
+    -------
+    np.ndarray
+        Indices of the kept boxes, int32.
     """
     assert boxes.shape[0] > 0
     if boxes.dtype.kind != "f":
@@ -155,9 +202,19 @@ def non_max_suppression(boxes, scores, threshold):
 
 
 def apply_box_deltas(boxes, deltas):
-    """Applies the given deltas to the given boxes.
-    boxes: [N, (y1, x1, y2, x2)]. Note that (y2, x2) is outside the box.
-    deltas: [N, (dy, dx, log(dh), log(dw))]
+    """Apply refinement deltas to boxes.
+
+    Parameters
+    ----------
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]``; ``(y2, x2)`` is outside the box.
+    deltas : np.ndarray
+        ``[N, (dy, dx, log(dh), log(dw))]``.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` refined boxes.
     """
     boxes = boxes.astype(np.float32)
     # Convert to y, x, h, w
@@ -179,8 +236,19 @@ def apply_box_deltas(boxes, deltas):
 
 
 def box_refinement_graph(box, gt_box):
-    """Compute refinement needed to transform box to gt_box.
-    box and gt_box are [N, (y1, x1, y2, x2)]
+    """Compute the refinement that transforms boxes into ground-truth boxes (TensorFlow).
+
+    Parameters
+    ----------
+    box : tf.Tensor
+        ``[N, (y1, x1, y2, x2)]``.
+    gt_box : tf.Tensor
+        ``[N, (y1, x1, y2, x2)]`` ground-truth boxes.
+
+    Returns
+    -------
+    tf.Tensor
+        ``[N, (dy, dx, log(dh), log(dw))]`` deltas.
     """
     box = tf.cast(box, tf.float32)
     gt_box = tf.cast(gt_box, tf.float32)
@@ -205,9 +273,19 @@ def box_refinement_graph(box, gt_box):
 
 
 def box_refinement(box, gt_box):
-    """Compute refinement needed to transform box to gt_box.
-    box and gt_box are [N, (y1, x1, y2, x2)]. (y2, x2) is
-    assumed to be outside the box.
+    """Compute the refinement that transforms boxes into ground-truth boxes (numpy).
+
+    Parameters
+    ----------
+    box : np.ndarray
+        ``[N, (y1, x1, y2, x2)]``; ``(y2, x2)`` is outside the box.
+    gt_box : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` ground-truth boxes.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, (dy, dx, log(dh), log(dw))]`` deltas.
     """
     box = box.astype(np.float32)
     gt_box = gt_box.astype(np.float32)
@@ -236,21 +314,57 @@ def box_refinement(box, gt_box):
 
 
 class Dataset:
-    """The base class for dataset classes.
-    To use it, create a new class that adds functions specific to the dataset
-    you want to use. For example:
+    """Base class for datasets.
 
-    class CatsAndDogsDataset(Dataset):
-        def load_cats_and_dogs(self):
-            ...
-        def load_mask(self, image_id):
-            ...
-        def image_reference(self, image_id):
-            ...
+    Sub-class it with a method that registers the images (``add_class``, ``add_image``) and
+    override ``load_mask`` (and optionally ``image_reference``, ``load_image``), then call
+    ``prepare()`` before use::
 
-    See COCODataset and ShapesDataset as examples.
+        class CatsAndDogsDataset(Dataset):
+            def load_cats_and_dogs(self): ...
+            def load_mask(self, image_id): ...
+
+    Parameters
+    ----------
+    class_map : dict | None
+        Not supported yet. By default ``None``.
+
+    Attributes
+    ----------
+    image_info : list[dict]
+        One dict per image: ``id``, ``source``, ``path``, and any extra ``add_image`` keywords.
+    class_info : list[dict]
+        One dict per class: ``source``, ``id``, ``name``; index 0 is the background.
+    source_class_ids : dict
+        Internal class ids of each source, set by ``prepare``.
+    num_classes : int
+        Number of classes, background included, set by ``prepare``.
+    class_ids : np.ndarray
+        Internal class ids, set by ``prepare``.
+    class_names : list[str]
+        Class names, set by ``prepare``.
+    num_images : int
+        Number of images, set by ``prepare``.
+    class_from_source_map : dict
+        ``"source.id"`` to internal class id, set by ``prepare``.
+    image_from_source_map : dict
+        ``"source.id"`` to internal image id, set by ``prepare``.
+    sources : list[str]
+        Dataset sources, set by ``prepare``.
     """
 
+    image_info: list[dict]
+    class_info: list[dict]
+    source_class_ids: dict
+    num_classes: int
+    class_ids: np.ndarray
+    class_names: list[str]
+    num_images: int
+    class_from_source_map: dict
+    image_from_source_map: dict
+    sources: list[str]
+
+    # pylint: disable-next=unused-argument  # class_map: documented as not supported yet
     def __init__(self, class_map=None):
         self._image_ids = []
         self.image_info = []
@@ -259,22 +373,43 @@ class Dataset:
         self.source_class_ids = {}
 
     def add_class(self, source, class_id, class_name):
-        assert "." not in source, "Source name cannot contain a dot"
-        # Does the class exist already?
-        for info in self.class_info:
-            if info["source"] == source and info["id"] == class_id:
-                # source.class_id combination already available, skip
-                return
-        # Add the class
-        self.class_info.append(
-            {
-                "source": source,
-                "id": class_id,
-                "name": class_name,
-            }
-        )
+        """Register a class.
+
+        Parameters
+        ----------
+        source : str
+            Name of the dataset the class comes from.
+        class_id : int
+            Class id in that dataset.
+        class_name : str
+            Class name.
+
+        Raises
+        ------
+        ValueError
+            If ``source`` contains a dot (dots separate source and id in source class ids).
+        """
+        if "." in source:
+            raise ValueError("Source name cannot contain a dot")
+        # A source.class_id combination is only registered once
+        known = any(info["source"] == source and info["id"] == class_id for info in self.class_info)
+        if not known:
+            self.class_info.append({"source": source, "id": class_id, "name": class_name})
 
     def add_image(self, source, image_id, path, **kwargs):
+        """Register an image.
+
+        Parameters
+        ----------
+        source : str
+            Name of the dataset the image comes from.
+        image_id : object
+            Image id in that dataset.
+        path : str | None
+            Path of the image file.
+        **kwargs : dict
+            Extra information stored in ``image_info`` (e.g. annotations).
+        """
         image_info = {
             "id": image_id,
             "source": source,
@@ -283,24 +418,48 @@ class Dataset:
         image_info.update(kwargs)
         self.image_info.append(image_info)
 
+    # pylint: disable-next=unused-argument  # base implementation, overridden by datasets
     def image_reference(self, image_id):
-        """Return a link to the image in its source Website or details about
-        the image that help looking it up or debugging it.
+        """Describe an image for debugging: its link in the source, or details to find it.
 
-        Override for your dataset, but pass to this function
-        if you encounter images not in your dataset.
+        Override it for your dataset.
+
+        Parameters
+        ----------
+        image_id : int
+            Internal image id.
+
+        Returns
+        -------
+        str
+            The reference; empty by default.
         """
         return ""
 
+    # pylint: disable-next=unused-argument  # class_map: documented as not supported yet
     def prepare(self, class_map=None):
-        """Prepares the Dataset class for use.
+        """Build the internal class and image indexes; call it after registering the data.
 
-        TODO: class map is not supported yet. When done, it should handle mapping
-              classes from different datasets to the same class ID.
+        Parameters
+        ----------
+        class_map : dict | None
+            Not supported yet: it would map classes of different datasets to the same id.
+            By default ``None``.
         """
 
         def clean_name(name):
-            """Returns a shorter version of object names for cleaner display."""
+            """Shorten an object name for display (text before the first comma).
+
+            Parameters
+            ----------
+            name : str
+                Object name.
+
+            Returns
+            -------
+            str
+                The short name.
+            """
             return ",".join(name.split(",")[:1])
 
         # Build (or rebuild) everything else from the info dicts.
@@ -312,16 +471,16 @@ class Dataset:
 
         # Mapping from source class and image IDs to internal IDs
         self.class_from_source_map = {
-            "{}.{}".format(info["source"], info["id"]): id
-            for info, id in zip(self.class_info, self.class_ids)
+            f"{info['source']}.{info['id']}": id
+            for info, id in zip(self.class_info, self.class_ids, strict=True)
         }
         self.image_from_source_map = {
-            "{}.{}".format(info["source"], info["id"]): id
-            for info, id in zip(self.image_info, self.image_ids)
+            f"{info['source']}.{info['id']}": id
+            for info, id in zip(self.image_info, self.image_ids, strict=True)
         }
 
         # Map sources to class_ids they support
-        self.sources = list(set([i["source"] for i in self.class_info]))
+        self.sources = list({i["source"] for i in self.class_info})
         self.source_class_ids = {}
         # Loop over datasets
         for source in self.sources:
@@ -333,54 +492,103 @@ class Dataset:
                     self.source_class_ids[source].append(i)
 
     def map_source_class_id(self, source_class_id):
-        """Takes a source class ID and returns the int class ID assigned to it.
+        """Map a source class id to the internal class id.
 
-        For example:
-        dataset.map_source_class_id("coco.12") -> 23
+        Parameters
+        ----------
+        source_class_id : str
+            ``"<source>.<id>"``, e.g. ``"coco.12"``.
+
+        Returns
+        -------
+        int
+            The internal class id.
         """
         return self.class_from_source_map[source_class_id]
 
     def get_source_class_id(self, class_id, source):
-        """Map an internal class ID to the corresponding class ID in the source dataset."""
+        """Map an internal class id to its id in a source dataset.
+
+        Parameters
+        ----------
+        class_id : int
+            Internal class id.
+        source : str
+            Source dataset name.
+
+        Returns
+        -------
+        object
+            The class id in the source dataset.
+        """
         info = self.class_info[class_id]
         assert info["source"] == source
         return info["id"]
 
     @property
     def image_ids(self):
+        """Internal image ids, set by ``prepare``.
+
+        Returns
+        -------
+        np.ndarray
+            ``[num_images]`` ids.
+        """
         return self._image_ids
 
     def source_image_link(self, image_id):
-        """Returns the path or URL to the image.
-        Override this to return a URL to the image if it's available online for easy
-        debugging.
+        """Get the path or URL of an image; override to link to an online copy.
+
+        Parameters
+        ----------
+        image_id : int
+            Internal image id.
+
+        Returns
+        -------
+        str
+            The image's path.
         """
         return self.image_info[image_id]["path"]
 
     def load_image(self, image_id):
-        """Load the specified image and return a [H,W,3] Numpy array."""
+        """Load an image as RGB.
+
+        Parameters
+        ----------
+        image_id : int
+            Internal image id.
+
+        Returns
+        -------
+        np.ndarray
+            ``[height, width, 3]`` image; grayscale is converted to RGB, alpha dropped.
+        """
         # Load image
-        image = skimage.io.imread(self.image_info[image_id]["path"])
+        image = io.imread(self.image_info[image_id]["path"])
         # If grayscale. Convert to RGB for consistency.
         if image.ndim != 3:
-            image = skimage.color.gray2rgb(image)
+            image = color.gray2rgb(image)
         # If has an alpha channel, remove it for consistency
         if image.shape[-1] == 4:
             image = image[..., :3]
         return image
 
+    # pylint: disable-next=unused-argument  # base implementation, overridden by datasets
     def load_mask(self, image_id):
-        """Load instance masks for the given image.
+        """Load the instance masks of an image. Override it: the base class returns no masks.
 
-        Different datasets use different ways to store masks. Override this
-        method to load instance masks and return them in the form of am
-        array of binary masks of shape [height, width, instances].
+        Parameters
+        ----------
+        image_id : int
+            Internal image id.
 
         Returns
         -------
-            masks: A bool array of shape [height, width, instance count] with
-                a binary mask per instance.
-            class_ids: a 1D array of class IDs of the instance masks.
+        masks : np.ndarray
+            ``[height, width, instance_count]`` bool masks, one per instance.
+        class_ids : np.ndarray
+            ``[instance_count]`` class ids of the masks, int32.
         """
         # Override this function to load a mask from your dataset.
         # Otherwise, it returns an empty mask.
@@ -393,19 +601,30 @@ class Dataset:
 
 
 def resize_mask(mask, scale, padding, crop=None):
-    """Resizes a mask using the given scale and padding.
-    Typically, you get the scale and padding from resize_image() to
-    ensure both, the image and the mask, are resized consistently.
+    """Resize and pad masks the way ``inference.resize_image`` resized their image.
 
-    scale: mask scaling factor
-    padding: Padding to add to the mask in the form
-            [(top, bottom), (left, right), (0, 0)]
+    Parameters
+    ----------
+    mask : np.ndarray
+        ``[height, width, num_instances]`` masks.
+    scale : float
+        Scale factor returned by ``resize_image``.
+    padding : list
+        ``[(top, bottom), (left, right), (0, 0)]`` returned by ``resize_image``.
+    crop : tuple | None
+        ``(y, x, height, width)`` returned by ``resize_image`` in ``"crop"`` mode.
+        By default ``None``.
+
+    Returns
+    -------
+    np.ndarray
+        The resized masks.
     """
     # Suppress warning from scipy 0.13.0, the output shape of zoom() is
     # calculated with round() instead of int()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        mask = scipy.ndimage.zoom(mask, zoom=[scale, scale, 1], order=0)
+        mask = ndimage.zoom(mask, zoom=[scale, scale, 1], order=0)
     if crop is not None:
         y, x, h, w = crop
         mask = mask[y : y + h, x : x + w]
@@ -415,10 +634,28 @@ def resize_mask(mask, scale, padding, crop=None):
 
 
 def minimize_mask(bbox, mask, mini_shape):
-    """Resize masks to a smaller version to reduce memory load.
-    Mini-masks can be resized back to image scale using expand_masks()
+    """Shrink masks to their box and a small fixed size, to reduce memory load.
 
-    See inspect_data.ipynb notebook for more details.
+    ``expand_mask`` restores them to the image size.
+
+    Parameters
+    ----------
+    bbox : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` boxes of the masks.
+    mask : np.ndarray
+        ``[height, width, N]`` masks.
+    mini_shape : tuple
+        ``(height, width)`` of the mini masks.
+
+    Returns
+    -------
+    np.ndarray
+        ``[mini_height, mini_width, N]`` bool mini masks.
+
+    Raises
+    ------
+    ValueError
+        If a box has an area of zero.
     """
     mini_mask = np.zeros(mini_shape + (mask.shape[-1],), dtype=bool)
     for i in range(mask.shape[-1]):
@@ -427,7 +664,7 @@ def minimize_mask(bbox, mask, mini_shape):
         y1, x1, y2, x2 = bbox[i][:4]
         m = m[y1:y2, x1:x2]
         if m.size == 0:
-            raise Exception("Invalid bounding box with area of zero")
+            raise ValueError("Invalid bounding box with area of zero")
         # Resize with bilinear interpolation
         m = resize(m.astype(np.float32), mini_shape)
         mini_mask[:, :, i] = np.around(m).astype(bool)
@@ -435,10 +672,21 @@ def minimize_mask(bbox, mask, mini_shape):
 
 
 def expand_mask(bbox, mini_mask, image_shape):
-    """Resizes mini masks back to image size. Reverses the change
-    of minimize_mask().
+    """Restore mini masks to the image size, reversing ``minimize_mask``.
 
-    See inspect_data.ipynb notebook for more details.
+    Parameters
+    ----------
+    bbox : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` boxes of the masks, in image pixels.
+    mini_mask : np.ndarray
+        ``[mini_height, mini_width, N]`` mini masks.
+    image_shape : tuple
+        ``(height, width, ...)`` of the image.
+
+    Returns
+    -------
+    np.ndarray
+        ``[height, width, N]`` bool masks.
     """
     mask = np.zeros(image_shape[:2] + (mini_mask.shape[-1],), dtype=bool)
     for i in range(mask.shape[-1]):
@@ -452,11 +700,6 @@ def expand_mask(bbox, mini_mask, image_shape):
     return mask
 
 
-# TODO: Build and use this function to reduce code duplication
-def mold_mask(mask, config):
-    pass
-
-
 ############################################################
 #  Anchors
 ############################################################
@@ -468,10 +711,22 @@ def mold_mask(mask, config):
 
 
 def trim_zeros(x):
-    """It's common to have tensors larger than the available data and
-    pad with zeros. This function removes rows that are all zeros.
+    """Remove the all-zero rows used to pad an array.
 
-    x: [rows, columns].
+    Parameters
+    ----------
+    x : np.ndarray
+        ``[rows, columns]`` array.
+
+    Returns
+    -------
+    np.ndarray
+        The rows that are not all zeros.
+
+    Examples
+    --------
+    >>> trim_zeros(np.array([[1, 2], [0, 0]])).tolist()
+    [[1, 2]]
     """
     assert len(x.shape) == 2
     return x[~np.all(x == 0, axis=1)]
@@ -488,15 +743,37 @@ def compute_matches(
     iou_threshold=0.5,
     score_threshold=0.0,
 ):
-    """Finds matches between prediction and ground truth instances.
+    """Match predicted instances to ground-truth instances, best scores first.
+
+    Parameters
+    ----------
+    gt_boxes : np.ndarray
+        ``[G, (y1, x1, y2, x2)]`` ground-truth boxes.
+    gt_class_ids : np.ndarray
+        ``[G]`` ground-truth class ids.
+    gt_masks : np.ndarray
+        ``[height, width, G]`` ground-truth masks.
+    pred_boxes : np.ndarray
+        ``[P, (y1, x1, y2, x2)]`` predicted boxes.
+    pred_class_ids : np.ndarray
+        ``[P]`` predicted class ids.
+    pred_scores : np.ndarray
+        ``[P]`` prediction confidences.
+    pred_masks : np.ndarray
+        ``[height, width, P]`` predicted masks.
+    iou_threshold : float
+        Mask IoU needed for a match. By default 0.5.
+    score_threshold : float
+        Predictions below this score are ignored. By default 0.0.
 
     Returns
     -------
-        gt_match: 1-D array. For each GT box it has the index of the matched
-                  predicted box.
-        pred_match: 1-D array. For each predicted box, it has the index of
-                    the matched ground truth box.
-        overlaps: [pred_boxes, gt_boxes] IoU overlaps.
+    gt_match : np.ndarray
+        ``[G]`` index of the matched prediction for each ground truth, -1 if none.
+    pred_match : np.ndarray
+        ``[P]`` index of the matched ground truth for each prediction, -1 if none.
+    overlaps : np.ndarray
+        ``[P, G]`` mask IoU overlaps.
     """
     # Trim zero padding
     # TODO: cleaner to do zero unpadding upstream
@@ -555,14 +832,37 @@ def compute_ap(
     pred_masks,
     iou_threshold=0.5,
 ):
-    """Compute Average Precision at a set IoU threshold (default 0.5).
+    """Compute the average precision at one IoU threshold.
+
+    Parameters
+    ----------
+    gt_boxes : np.ndarray
+        ``[G, (y1, x1, y2, x2)]`` ground-truth boxes.
+    gt_class_ids : np.ndarray
+        ``[G]`` ground-truth class ids.
+    gt_masks : np.ndarray
+        ``[height, width, G]`` ground-truth masks.
+    pred_boxes : np.ndarray
+        ``[P, (y1, x1, y2, x2)]`` predicted boxes.
+    pred_class_ids : np.ndarray
+        ``[P]`` predicted class ids.
+    pred_scores : np.ndarray
+        ``[P]`` prediction confidences.
+    pred_masks : np.ndarray
+        ``[height, width, P]`` predicted masks.
+    iou_threshold : float
+        Mask IoU needed for a true positive. By default 0.5.
 
     Returns
     -------
-    mAP: Mean Average Precision
-    precisions: List of precisions at different class score thresholds.
-    recalls: List of recall values at different class score thresholds.
-    overlaps: [pred_boxes, gt_boxes] IoU overlaps.
+    mAP : float
+        Mean average precision.
+    precisions : np.ndarray
+        Precision at each score threshold.
+    recalls : np.ndarray
+        Recall at each score threshold.
+    overlaps : np.ndarray
+        ``[P, G]`` mask IoU overlaps.
     """
     # Get matches and overlaps
     gt_match, pred_match, overlaps = compute_matches(
@@ -608,14 +908,41 @@ def compute_ap_range(
     iou_thresholds=None,
     verbose=1,
 ):
-    """Compute AP over a range or IoU thresholds. Default range is 0.5-0.95."""
+    """Compute the average precision over a range of IoU thresholds.
+
+    Parameters
+    ----------
+    gt_box : np.ndarray
+        ``[G, (y1, x1, y2, x2)]`` ground-truth boxes.
+    gt_class_id : np.ndarray
+        ``[G]`` ground-truth class ids.
+    gt_mask : np.ndarray
+        ``[height, width, G]`` ground-truth masks.
+    pred_box : np.ndarray
+        ``[P, (y1, x1, y2, x2)]`` predicted boxes.
+    pred_class_id : np.ndarray
+        ``[P]`` predicted class ids.
+    pred_score : np.ndarray
+        ``[P]`` prediction confidences.
+    pred_mask : np.ndarray
+        ``[height, width, P]`` predicted masks.
+    iou_thresholds : np.ndarray | None
+        IoU thresholds; ``None`` means 0.5 to 0.95 by steps of 0.05. By default ``None``.
+    verbose : int
+        Print the AP of each threshold when non-zero. By default 1.
+
+    Returns
+    -------
+    float
+        The average precision over the thresholds.
+    """
     # Default is 0.5 to 0.95 with increments of 0.05
     iou_thresholds = iou_thresholds or np.arange(0.5, 1.0, 0.05)
 
     # Compute AP over range of IoU thresholds
     AP = []
     for iou_threshold in iou_thresholds:
-        ap, precisions, recalls, overlaps = compute_ap(
+        ap, _, _, _ = compute_ap(
             gt_box,
             gt_class_id,
             gt_mask,
@@ -635,11 +962,23 @@ def compute_ap_range(
 
 
 def compute_recall(pred_boxes, gt_boxes, iou):
-    """Compute the recall at the given IoU threshold. It's an indication
-    of how many GT boxes were found by the given prediction boxes.
+    """Compute the recall of predicted boxes at an IoU threshold.
 
-    pred_boxes: [N, (y1, x1, y2, x2)] in image coordinates
-    gt_boxes: [N, (y1, x1, y2, x2)] in image coordinates
+    Parameters
+    ----------
+    pred_boxes : np.ndarray
+        ``[P, (y1, x1, y2, x2)]`` predicted boxes, in pixels.
+    gt_boxes : np.ndarray
+        ``[G, (y1, x1, y2, x2)]`` ground-truth boxes, in pixels.
+    iou : float
+        IoU needed for a ground-truth box to count as found.
+
+    Returns
+    -------
+    recall : float
+        Fraction of ground-truth boxes found.
+    positive_ids : np.ndarray
+        Indices of the predicted boxes that found a ground-truth box.
     """
     # Measure overlaps
     overlaps = compute_overlaps(pred_boxes, gt_boxes)
@@ -660,15 +999,24 @@ def compute_recall(pred_boxes, gt_boxes, iou):
 # In the long run, it's more efficient to modify the code to support large
 # batches and getting rid of this function. Consider this a temporary solution
 def batch_slice(inputs, graph_fn, batch_size, names=None):
-    """Splits inputs into slices and feeds each slice to a copy of the given
-    computation graph and then combines the results. It allows you to run a
-    graph on a batch of inputs even if the graph is written to support one
-    instance only.
+    """Run a graph written for one instance on each instance of a batch, and combine the results.
 
-    inputs: list of tensors. All must have the same first dimension length
-    graph_fn: A function that returns a TF tensor that's part of a graph.
-    batch_size: number of slices to divide the data into.
-    names: If provided, assigns names to the resulting tensors.
+    Parameters
+    ----------
+    inputs : list
+        Tensors with the same first dimension (the batch).
+    graph_fn : callable
+        Function building the graph for one instance; returns a tensor or a list of tensors.
+    batch_size : int
+        Number of slices (instances) to run.
+    names : list[str] | None
+        Names of the combined outputs. By default ``None``.
+
+    Returns
+    -------
+    tf.Tensor | list
+        The outputs stacked along the batch axis: one tensor, or a list when ``graph_fn`` returns
+        several.
     """
     if not isinstance(inputs, list):
         inputs = [inputs]
@@ -683,12 +1031,12 @@ def batch_slice(inputs, graph_fn, batch_size, names=None):
     # Change outputs from a list of slices where each is
     # a list of outputs to a list of outputs and each has
     # a list of slices
-    outputs = list(zip(*outputs))
+    outputs = list(zip(*outputs, strict=True))
 
     if names is None:
         names = [None] * len(outputs)
 
-    result = [tf.stack(o, axis=0, name=n) for o, n in zip(outputs, names)]
+    result = [tf.stack(o, axis=0, name=n) for o, n in zip(outputs, names, strict=True)]
     if len(result) == 1:
         result = result[0]
 
@@ -696,9 +1044,14 @@ def batch_slice(inputs, graph_fn, batch_size, names=None):
 
 
 def download_trained_weights(coco_model_path, verbose=1):
-    """Download COCO trained weights from Releases.
+    """Download the COCO trained weights of Matterport's v2.0 release.
 
-    coco_model_path: local path of COCO trained weights
+    Parameters
+    ----------
+    coco_model_path : str
+        Where to save the weights.
+    verbose : int
+        Print progress when non-zero. By default 1.
     """
     if verbose > 0:
         print("Downloading pretrained model to " + coco_model_path + " ...")

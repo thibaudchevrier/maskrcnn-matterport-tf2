@@ -1,12 +1,12 @@
-"""
-Mask R-CNN
-Inference-side helpers: image resizing, anchors, image meta, and turning network outputs into
-boxes and masks. numpy and scikit-image only (no TensorFlow), so a service can run an exported
-model with any TensorFlow version, or none of this package's training dependencies.
+"""Inference-side helpers of Mask R-CNN: image resizing, anchors, image meta, and unmolding.
+
+Turns images into network inputs and network outputs back into boxes and masks. numpy and
+scikit-image only (no TensorFlow), so a service can run an exported model with any TensorFlow
+version, without this package's training dependencies.
 
 Copyright (c) 2017 Matterport, Inc.
-Licensed under the MIT License (see LICENSE for details)
-Written by Waleed Abdulla
+Licensed under the MIT License (see LICENSE for details).
+Written by Waleed Abdulla.
 """
 
 import math
@@ -27,12 +27,33 @@ def resize(
     anti_aliasing=False,
     anti_aliasing_sigma=None,
 ):
-    """A wrapper for Scikit-Image resize().
+    """Resize an image with the package-wide scikit-image defaults.
 
-    Scikit-Image generates warnings on every call to resize() if it doesn't
-    receive the right parameters. The right parameters depend on the version
-    of skimage. This solves the problem by using different parameters per
-    version. And it provides a central place to control resizing defaults.
+    Parameters
+    ----------
+    image : np.ndarray
+        Image or mask to resize.
+    output_shape : tuple
+        Target ``(height, width)``.
+    order : int
+        Spline interpolation order (0 nearest, 1 bilinear). By default 1.
+    mode : str
+        How points outside the boundaries are filled. By default ``"constant"``.
+    cval : float
+        Fill value for ``mode="constant"``. By default 0.
+    clip : bool
+        Clip the output to the input range. By default ``True``.
+    preserve_range : bool
+        Keep the input value range instead of converting to [0, 1]. By default ``False``.
+    anti_aliasing : bool
+        Gaussian-smooth before downsampling. By default ``False``.
+    anti_aliasing_sigma : float | None
+        Standard deviation of that smoothing. By default ``None``.
+
+    Returns
+    -------
+    np.ndarray
+        The resized image.
     """
     return skimage.transform.resize(
         image,
@@ -48,37 +69,43 @@ def resize(
 
 
 def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square"):
-    """Resizes an image keeping the aspect ratio unchanged.
+    """Resize an image keeping its aspect ratio, then pad or crop it.
 
-    min_dim: if provided, resizes the image such that it's smaller
-        dimension == min_dim
-    max_dim: if provided, ensures that the image longest side doesn't
-        exceed this value.
-    min_scale: if provided, ensure that the image is scaled up by at least
-        this percent even if min_dim doesn't require it.
-    mode: Resizing mode.
-        none: No resizing. Return the image unchanged.
-        square: Resize and pad with zeros to get a square image
-            of size [max_dim, max_dim].
-        pad64: Pads width and height with zeros to make them multiples of 64.
-               If min_dim or min_scale are provided, it scales the image up
-               before padding. max_dim is ignored in this mode.
-               The multiple of 64 is needed to ensure smooth scaling of feature
-               maps up and down the 6 levels of the FPN pyramid (2**6=64).
-        crop: Picks random crops from the image. First, scales the image based
-              on min_dim and min_scale, then picks a random crop of
-              size min_dim x min_dim. Can be used in training only.
-              max_dim is not used in this mode.
+    Parameters
+    ----------
+    image : np.ndarray
+        Image, shape ``(height, width, channels)``.
+    min_dim : int | None
+        Scale up so the short side is at least this long. By default ``None``.
+    max_dim : int | None
+        In ``"square"`` mode, the long side never exceeds it, and the output is
+        ``max_dim x max_dim``. By default ``None``.
+    min_scale : float | None
+        Scale up by at least this factor, even if ``min_dim`` doesn't require it.
+        By default ``None``.
+    mode : str
+        ``"none"`` (unchanged), ``"square"`` (resize and zero-pad to ``max_dim x max_dim``),
+        ``"pad64"`` (zero-pad to multiples of 64, scaling up first with ``min_dim`` /
+        ``min_scale``) or ``"crop"`` (scale, then take a random ``min_dim x min_dim`` crop; training
+        only). By default ``"square"``.
 
     Returns
     -------
-    image: the resized image
-    window: (y1, x1, y2, x2). If max_dim is provided, padding might
-        be inserted in the returned image. If so, this window is the
-        coordinates of the image part of the full image (excluding
-        the padding). The x2, y2 pixels are not included.
-    scale: The scale factor used to resize the image
-    padding: Padding added to the image [(top, bottom), (left, right), (0, 0)]
+    image : np.ndarray
+        The resized image, same dtype as the input.
+    window : tuple
+        ``(y1, x1, y2, x2)`` of the image inside the padded output; ``(y2, x2)`` excluded.
+    scale : float
+        Scale factor applied to the image.
+    padding : list
+        Padding added, ``[(top, bottom), (left, right), (0, 0)]``.
+    crop : tuple | None
+        ``(y, x, height, width)`` of the crop in ``"crop"`` mode, ``None`` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not one of the modes above.
     """
     # Keep track of image dtype and return results in the same dtype
     image_dtype = image.dtype
@@ -150,21 +177,31 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
         image = image[y : y + min_dim, x : x + min_dim]
         window = (0, 0, min_dim, min_dim)
     else:
-        raise Exception(f"Mode {mode} not supported")
+        raise ValueError(f"Mode {mode} not supported")
     return image.astype(image_dtype), window, scale, padding, crop
 
 
 def norm_boxes(boxes, shape):
-    """Converts boxes from pixel coordinates to normalized coordinates.
-    boxes: [N, (y1, x1, y2, x2)] in pixel coordinates
-    shape: [..., (height, width)] in pixels
+    """Convert boxes from pixel to normalized coordinates.
 
-    Note: In pixel coordinates (y2, x2) is outside the box. But in normalized
-    coordinates it's inside the box.
+    In pixel coordinates ``(y2, x2)`` is outside the box; in normalized coordinates it's inside.
+
+    Parameters
+    ----------
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` in pixels.
+    shape : tuple
+        ``(height, width)`` of the image, in pixels.
 
     Returns
     -------
-        [N, (y1, x1, y2, x2)] in normalized coordinates
+    np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` in normalized coordinates, float32.
+
+    Examples
+    --------
+    >>> norm_boxes(np.array([[0, 0, 11, 11]]), (11, 11)).tolist()
+    [[0.0, 0.0, 1.0, 1.0]]
     """
     h, w = shape
     scale = np.array([h - 1, w - 1, h - 1, w - 1])
@@ -173,16 +210,24 @@ def norm_boxes(boxes, shape):
 
 
 def denorm_boxes(boxes, shape):
-    """Converts boxes from normalized coordinates to pixel coordinates.
-    boxes: [N, (y1, x1, y2, x2)] in normalized coordinates
-    shape: [..., (height, width)] in pixels
+    """Convert boxes from normalized to pixel coordinates, the inverse of ``norm_boxes``.
 
-    Note: In pixel coordinates (y2, x2) is outside the box. But in normalized
-    coordinates it's inside the box.
+    Parameters
+    ----------
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` in normalized coordinates.
+    shape : tuple
+        ``(height, width)`` of the image, in pixels.
 
     Returns
     -------
-        [N, (y1, x1, y2, x2)] in pixel coordinates
+    np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` in pixels, int32; ``(y2, x2)`` excluded.
+
+    Examples
+    --------
+    >>> denorm_boxes(np.array([[0.0, 0.0, 1.0, 1.0]]), (11, 11)).tolist()
+    [[0, 0, 11, 11]]
     """
     h, w = shape
     scale = np.array([h - 1, w - 1, h - 1, w - 1])
@@ -191,12 +236,21 @@ def denorm_boxes(boxes, shape):
 
 
 def unmold_mask(mask, bbox, image_shape):
-    """Converts a mask generated by the neural network to a format similar
-    to its original shape.
-    mask: [height, width] of type float. A small, typically 28x28 mask.
-    bbox: [y1, x1, y2, x2]. The box to fit the mask in.
+    """Fit a small predicted mask into its box on a full-size canvas.
 
-    Returns a binary mask with the same size as the original image.
+    Parameters
+    ----------
+    mask : np.ndarray
+        ``[height, width]`` float mask predicted by the network, typically 28x28.
+    bbox : np.ndarray
+        ``(y1, x1, y2, x2)`` box to fit the mask in, in pixels.
+    image_shape : tuple
+        Shape of the original image, ``(height, width, ...)``.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean mask of the original image's height and width (threshold 0.5).
     """
     threshold = 0.5
     y1, x1, y2, x2 = bbox
@@ -210,14 +264,25 @@ def unmold_mask(mask, bbox, image_shape):
 
 
 def generate_anchors(scales, ratios, shape, feature_stride, anchor_stride):
-    """
-    scales: 1D array of anchor sizes in pixels. Example: [32, 64, 128]
-    ratios: 1D array of anchor ratios of width/height. Example: [0.5, 1, 2]
-    shape: [height, width] spatial shape of the feature map over which
-            to generate anchors.
-    feature_stride: Stride of the feature map relative to the image in pixels.
-    anchor_stride: Stride of anchors on the feature map. For example, if the
-        value is 2 then generate anchors for every other feature map pixel.
+    """Generate the anchors of one feature map.
+
+    Parameters
+    ----------
+    scales : np.ndarray
+        Anchor sizes in pixels, e.g. ``[32, 64, 128]``.
+    ratios : np.ndarray
+        Anchor width/height ratios, e.g. ``[0.5, 1, 2]``.
+    shape : tuple
+        ``(height, width)`` of the feature map.
+    feature_stride : int
+        Stride of the feature map relative to the image, in pixels.
+    anchor_stride : int
+        Stride of the anchors on the feature map (2 = every other feature map pixel).
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` anchors in pixels.
     """
     # Get all combinations of scales and ratios
     scales, ratios = np.meshgrid(np.array(scales), np.array(ratios))
@@ -247,34 +312,50 @@ def generate_anchors(scales, ratios, shape, feature_stride, anchor_stride):
 
 
 def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides, anchor_stride):
-    """Generate anchors at different levels of a feature pyramid. Each scale
-    is associated with a level of the pyramid, but each ratio is used in
-    all levels of the pyramid.
+    """Generate the anchors of every level of a feature pyramid.
+
+    Each scale belongs to one pyramid level; every ratio is used at every level.
+
+    Parameters
+    ----------
+    scales : tuple
+        One anchor size (pixels) per pyramid level.
+    ratios : list
+        Anchor width/height ratios.
+    feature_shapes : np.ndarray
+        ``[levels, (height, width)]`` of the feature maps.
+    feature_strides : list
+        Stride of each feature map relative to the image, in pixels.
+    anchor_stride : int
+        Stride of the anchors on the feature maps.
 
     Returns
     -------
-    anchors: [N, (y1, x1, y2, x2)]. All generated anchors in one array. Sorted
-        with the same order of the given scales. So, anchors of scale[0] come
-        first, then anchors of scale[1], and so on.
+    np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` anchors in pixels, ordered by scale (``scales[0]`` first).
     """
     # Anchors
     # [anchor_count, (y1, x1, y2, x2)]
     anchors = []
-    for i in range(len(scales)):
-        anchors.append(
-            generate_anchors(
-                scales[i], ratios, feature_shapes[i], feature_strides[i], anchor_stride
-            )
-        )
+    for scale, shape, stride in zip(scales, feature_shapes, feature_strides, strict=True):
+        anchors.append(generate_anchors(scale, ratios, shape, stride, anchor_stride))
     return np.concatenate(anchors, axis=0)
 
 
 def compute_backbone_shapes(config, image_shape):
-    """Computes the width and height of each stage of the backbone network.
+    """Compute the height and width of each stage of the backbone network.
+
+    Parameters
+    ----------
+    config : Config
+        Model configuration (``BACKBONE``, ``BACKBONE_STRIDES``, ``COMPUTE_BACKBONE_SHAPE``).
+    image_shape : tuple
+        ``(height, width, ...)`` of the molded image.
 
     Returns
     -------
-        [N, (height, width)]. Where N is the number of stages
+    np.ndarray
+        ``[stages, (height, width)]``.
     """
     if callable(config.BACKBONE):
         return config.COMPUTE_BACKBONE_SHAPE(image_shape)
@@ -292,17 +373,27 @@ def compute_backbone_shapes(config, image_shape):
 def compose_image_meta(
     image_id, original_image_shape, image_shape, window, scale, active_class_ids
 ):
-    """Takes attributes of an image and puts them in one 1D array.
+    """Pack the attributes of an image into one 1D array.
 
-    image_id: An int ID of the image. Useful for debugging.
-    original_image_shape: [H, W, C] before resizing or padding.
-    image_shape: [H, W, C] after resizing and padding
-    window: (y1, x1, y2, x2) in pixels. The area of the image where the real
-            image is (excluding the padding)
-    scale: The scaling factor applied to the original image (float32)
-    active_class_ids: List of class_ids available in the dataset from which
-        the image came. Useful if training on images from multiple datasets
-        where not all classes are present in all datasets.
+    Parameters
+    ----------
+    image_id : int
+        Id of the image, useful for debugging.
+    original_image_shape : tuple
+        ``(height, width, channels)`` before resizing or padding.
+    image_shape : tuple
+        ``(height, width, channels)`` after resizing and padding.
+    window : tuple
+        ``(y1, x1, y2, x2)`` of the real image inside the padded one, in pixels.
+    scale : float
+        Scale factor applied to the original image.
+    active_class_ids : np.ndarray
+        Class ids available in the image's dataset, useful when training on several datasets.
+
+    Returns
+    -------
+    np.ndarray
+        ``[1 + 3 + 3 + 4 + 1 + num_classes]`` image meta, as ``parse_image_meta`` reads it.
     """
     meta = np.array(
         [image_id]  # size=1
@@ -316,12 +407,18 @@ def compose_image_meta(
 
 
 def parse_image_meta(meta):
-    """Parses an array that contains image attributes to its components.
-    See compose_image_meta() for more details.
+    """Unpack a batch of image metas (see ``compose_image_meta``).
 
-    meta: [batch, meta length] where meta length depends on NUM_CLASSES
+    Parameters
+    ----------
+    meta : np.ndarray
+        ``[batch, meta length]``.
 
-    Returns a dict of the parsed values.
+    Returns
+    -------
+    dict
+        ``image_id``, ``original_image_shape``, ``image_shape``, ``window``, ``scale`` and
+        ``active_class_ids``, one row per image.
     """
     image_id = meta[:, 0]
     original_image_shape = meta[:, 1:4]
@@ -340,35 +437,65 @@ def parse_image_meta(meta):
 
 
 def mold_image(images, config):
-    """Expects an RGB image (or array of images) and subtracts
-    the mean pixel and converts it to float. Expects image
-    colors in RGB order.
+    """Subtract the mean pixel from RGB images and convert them to float.
+
+    Parameters
+    ----------
+    images : np.ndarray
+        RGB image(s), channels last.
+    config : Config
+        Model configuration (``MEAN_PIXEL``).
+
+    Returns
+    -------
+    np.ndarray
+        The normalized image(s), float.
     """
     return images.astype(np.float32) - config.MEAN_PIXEL
 
 
 def unmold_image(normalized_images, config):
-    """Takes a image normalized with mold() and returns the original."""
+    """Undo ``mold_image``: add the mean pixel back and convert to uint8.
+
+    Parameters
+    ----------
+    normalized_images : np.ndarray
+        Image(s) normalized by ``mold_image``.
+    config : Config
+        Model configuration (``MEAN_PIXEL``).
+
+    Returns
+    -------
+    np.ndarray
+        The RGB image(s), uint8.
+    """
     return (normalized_images + config.MEAN_PIXEL).astype(np.uint8)
 
 
 def mold_inputs(images, config):
-    """Takes a list of images and modifies them to the format expected
-    as an input to the neural network.
-    images: List of image matrices [height,width,depth]. Images can have
-        different sizes.
+    """Resize and normalize images into the network's input format.
 
-    Returns 3 Numpy matrices:
-    molded_images: [N, h, w, 3]. Images resized and normalized.
-    image_metas: [N, length of meta data]. Details about each image.
-    windows: [N, (y1, x1, y2, x2)]. The portion of the image that has the
-        original image (padding excluded).
+    Parameters
+    ----------
+    images : list
+        RGB images ``[height, width, channels]``; they can have different sizes.
+    config : Config
+        Model configuration (resizing settings, ``MEAN_PIXEL``, ``NUM_CLASSES``).
+
+    Returns
+    -------
+    molded_images : np.ndarray
+        ``[N, height, width, 3]`` resized and normalized images.
+    image_metas : np.ndarray
+        ``[N, meta length]`` image metas (see ``compose_image_meta``).
+    windows : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` of each real image inside its padded one.
     """
     molded_images = []
     image_metas = []
     windows = []
     for image in images:
-        molded_image, window, scale, padding, crop = resize_image(
+        molded_image, window, scale, _, _ = resize_image(
             image,
             min_dim=config.IMAGE_MIN_DIM,
             min_scale=config.IMAGE_MIN_SCALE,
@@ -391,7 +518,20 @@ def mold_inputs(images, config):
 
 
 def pyramid_anchors(config, image_shape):
-    """Anchor pyramid [N, (y1, x1, y2, x2)] in pixel coordinates for a molded image shape."""
+    """Build the anchor pyramid for a molded image shape.
+
+    Parameters
+    ----------
+    config : Config
+        Model configuration (anchor scales, ratios, stride; backbone strides).
+    image_shape : tuple
+        ``(height, width, ...)`` of the molded image.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` anchors in pixels.
+    """
     backbone_shapes = compute_backbone_shapes(config, image_shape)
     return generate_pyramid_anchors(
         config.RPN_ANCHOR_SCALES,
@@ -403,23 +543,32 @@ def pyramid_anchors(config, image_shape):
 
 
 def unmold_detections(detections, mrcnn_mask, original_image_shape, image_shape, window):
-    """Reformats the detections of one image from the format of the neural
-    network output to a format suitable for use in the rest of the
-    application.
+    """Convert the network outputs of one image into boxes and full-size masks.
 
-    detections: [N, (y1, x1, y2, x2, class_id, score)] in normalized coordinates
-    mrcnn_mask: [N, height, width, num_classes]
-    original_image_shape: [H, W, C] Original image shape before resizing
-    image_shape: [H, W, C] Shape of the image after resizing and padding
-    window: [y1, x1, y2, x2] Pixel coordinates of box in the image where the real
-            image is excluding the padding.
+    Parameters
+    ----------
+    detections : np.ndarray
+        ``[N, (y1, x1, y2, x2, class_id, score)]`` in normalized coordinates, zero-padded after the
+        last detection.
+    mrcnn_mask : np.ndarray
+        ``[N, height, width, num_classes]`` predicted masks.
+    original_image_shape : tuple
+        ``(height, width, channels)`` of the image before resizing.
+    image_shape : tuple
+        ``(height, width, channels)`` of the molded image.
+    window : np.ndarray
+        ``(y1, x1, y2, x2)`` of the real image inside the molded one, in pixels.
 
     Returns
     -------
-    boxes: [N, (y1, x1, y2, x2)] Bounding boxes in pixels
-    class_ids: [N] Integer class IDs for each bounding box
-    scores: [N] Float probability scores of the class_id
-    masks: [height, width, num_instances] Instance masks
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` in pixels of the original image.
+    class_ids : np.ndarray
+        ``[N]`` class ids.
+    scores : np.ndarray
+        ``[N]`` confidences.
+    masks : np.ndarray
+        ``[height, width, N]`` boolean masks of the original image size.
     """
     # How many detections do we have?
     # Detections array is padded with zeros. Find the first class_id == 0.

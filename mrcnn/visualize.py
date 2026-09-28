@@ -1,30 +1,21 @@
-"""
-Mask R-CNN
-Display and Visualization Functions.
+"""Display and visualization helpers of Mask R-CNN (matplotlib; install the ``viz`` extra).
 
 Copyright (c) 2017 Matterport, Inc.
-Licensed under the MIT License (see LICENSE for details)
-Written by Waleed Abdulla
+Licensed under the MIT License (see LICENSE for details).
+Written by Waleed Abdulla.
 """
 
 import colorsys
 import itertools
-import os
 import random
-import sys
 
 import IPython.display
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import lines, patches
 from matplotlib.patches import Polygon
-from skimage.measure import find_contours
+from skimage import measure
 
-# Root directory of the project
-ROOT_DIR = os.path.abspath("../")
-
-# Import Mask RCNN
-sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn import inference, utils
 
 ############################################################
@@ -33,19 +24,28 @@ from mrcnn import inference, utils
 
 
 def display_images(images, titles=None, cols=4, cmap=None, norm=None, interpolation=None):
-    """Display the given set of images, optionally with titles.
-    images: list or array of image tensors in HWC format.
-    titles: optional. A list of titles to display with each image.
-    cols: number of images per row
-    cmap: Optional. Color map to use. For example, "Blues".
-    norm: Optional. A Normalize instance to map values to colors.
-    interpolation: Optional. Image interpolation to use for display.
+    """Show images in a grid, optionally with titles.
+
+    Parameters
+    ----------
+    images : list
+        Images, channels last.
+    titles : list[str] | None
+        One title per image. By default ``None``.
+    cols : int
+        Number of images per row. By default 4.
+    cmap : str | None
+        Matplotlib color map, e.g. ``"Blues"``. By default ``None``.
+    norm : matplotlib.colors.Normalize | None
+        Maps values to colors. By default ``None``.
+    interpolation : str | None
+        Matplotlib image interpolation. By default ``None``.
     """
     titles = titles if titles is not None else [""] * len(images)
     rows = len(images) // cols + 1
     plt.figure(figsize=(14, 14 * rows // cols))
     i = 1
-    for image, title in zip(images, titles):
+    for image, title in zip(images, titles, strict=True):
         plt.subplot(rows, cols, i)
         plt.title(title, fontsize=9)
         plt.axis("off")
@@ -55,20 +55,46 @@ def display_images(images, titles=None, cols=4, cmap=None, norm=None, interpolat
 
 
 def random_colors(N, bright=True):
-    """
-    Generate random colors.
-    To get visually distinct colors, generate them in HSV space then
-    convert to RGB.
+    """Generate visually distinct random colors (evenly spaced hues, shuffled).
+
+    Parameters
+    ----------
+    N : int
+        Number of colors.
+    bright : bool
+        Bright (full value) or darker colors. By default ``True``.
+
+    Returns
+    -------
+    list[tuple]
+        ``N`` RGB colors with channels in [0, 1].
     """
     brightness = 1.0 if bright else 0.7
     hsv = [(i / N, 1, brightness) for i in range(N)]
-    colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+    colors = [colorsys.hsv_to_rgb(*c) for c in hsv]
     random.shuffle(colors)
     return colors
 
 
 def apply_mask(image, mask, color, alpha=0.5):
-    """Apply the given mask to the image."""
+    """Tint the pixels of a mask with a color, in place.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image, modified in place.
+    mask : np.ndarray
+        ``[height, width]`` mask of 0 and 1.
+    color : tuple
+        RGB color with channels in [0, 1].
+    alpha : float
+        Opacity of the tint. By default 0.5.
+
+    Returns
+    -------
+    np.ndarray
+        The tinted image.
+    """
     for c in range(3):
         image[:, :, c] = np.where(
             mask == 1, image[:, :, c] * (1 - alpha) + alpha * color[c] * 255, image[:, :, c]
@@ -96,22 +122,46 @@ def display_instances(
     filter_classes=None,
     min_score=None,
 ):
-    """
-    boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
-    masks: [height, width, num_instances]
-    class_ids: [num_instances]
-    class_names: list of class names of the dataset
-    scores: (optional) confidence scores for each box
-    title: (optional) Figure title
-    show_mask, show_bbox: To show masks and bounding boxes or not
-    show_mask_polygon (Ahmed Gad): Show the mask polygon or not
-    figsize: (optional) the size of the image
-    colors: (optional) An array or colors to use with each object
-    captions: (optional) A list of strings to use as captions for each object
-    show_caption (Ahmed Gad): Whether to show the caption or not
-    save_fig_path (Ahmed Gad): Path to save the figure
-    filter_classes: A list of the class IDs to show in the result. Any object with a class ID not included in this list will not be considered.
-    min_score (Ahmed Gad): The minimum score of the objects to display.
+    """Draw instances (boxes, masks, captions) on an image.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image.
+    boxes : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` boxes in image coordinates.
+    masks : np.ndarray
+        ``[height, width, N]`` masks.
+    class_ids : np.ndarray
+        ``[N]`` class ids.
+    class_names : list[str]
+        Class names of the dataset.
+    scores : np.ndarray | None
+        ``[N]`` confidences. By default ``None``.
+    title : str
+        Figure title. By default ``""``.
+    figsize : tuple
+        Figure size. By default ``(16, 16)``.
+    ax : matplotlib.axes.Axes | None
+        Axes to draw on; a new figure is shown when ``None``. By default ``None``.
+    show_mask : bool
+        Draw the masks. By default ``True``.
+    show_mask_polygon : bool
+        Draw the mask outlines. By default ``True``.
+    show_bbox : bool
+        Draw the boxes. By default ``True``.
+    colors : list | None
+        One color per class id; random colors when ``None``. By default ``None``.
+    captions : list[str] | None
+        One caption per instance; ``"<class> <score>"`` when ``None``. By default ``None``.
+    show_caption : bool
+        Draw the captions. By default ``True``.
+    save_fig_path : str | None
+        Save the figure to this path. By default ``None``.
+    filter_classes : list[int] | None
+        Only draw instances of these class ids. By default ``None``.
+    min_score : float | None
+        Only draw instances scoring at least this. By default ``None``.
     """
     # Number of instances
     N = boxes.shape[0]
@@ -188,7 +238,7 @@ def display_instances(
             # Pad to ensure proper polygons for masks that touch image edges.
             padded_mask = np.zeros((mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
             padded_mask[1:-1, 1:-1] = mask
-            contours = find_contours(padded_mask, 0.5)
+            contours = measure.find_contours(padded_mask, 0.5)
             for verts in contours:
                 # Subtract the padding and flip (y, x) to (x, y)
                 verts = np.fliplr(verts) - 1
@@ -218,7 +268,41 @@ def display_differences(
     iou_threshold=0.5,
     score_threshold=0.5,
 ):
-    """Display ground truth and prediction instances on the same image."""
+    """Show ground-truth and predicted instances on the same image, with their matches.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image.
+    gt_box : np.ndarray
+        ``[G, (y1, x1, y2, x2)]`` ground-truth boxes.
+    gt_class_id : np.ndarray
+        ``[G]`` ground-truth class ids.
+    gt_mask : np.ndarray
+        ``[height, width, G]`` ground-truth masks.
+    pred_box : np.ndarray
+        ``[P, (y1, x1, y2, x2)]`` predicted boxes.
+    pred_class_id : np.ndarray
+        ``[P]`` predicted class ids.
+    pred_score : np.ndarray
+        ``[P]`` prediction confidences.
+    pred_mask : np.ndarray
+        ``[height, width, P]`` predicted masks.
+    class_names : list[str]
+        Class names of the dataset.
+    title : str
+        Figure title. By default ``""``.
+    ax : matplotlib.axes.Axes | None
+        Axes to draw on. By default ``None``.
+    show_mask : bool
+        Draw the masks. By default ``True``.
+    show_box : bool
+        Draw the boxes. By default ``True``.
+    iou_threshold : float
+        Mask IoU for a prediction to match a ground truth. By default 0.5.
+    score_threshold : float
+        Predictions below this score are ignored. By default 0.5.
+    """
     # Match predictions to ground truth
     gt_match, pred_match, overlaps = utils.compute_matches(
         gt_box,
@@ -239,9 +323,12 @@ def display_differences(
     boxes = np.concatenate([gt_box, pred_box])
     masks = np.concatenate([gt_mask, pred_mask], axis=-1)
     # Captions per instance show score/IoU
-    captions = ["" for m in gt_match] + [
-        f"{pred_score[i]:.2f} / {overlaps[i, int(pred_match[i])] if pred_match[i] > -1 else overlaps[i].max():.2f}"
+    pred_iou = [
+        overlaps[i, int(pred_match[i])] if pred_match[i] > -1 else overlaps[i].max()
         for i in range(len(pred_match))
+    ]
+    captions = ["" for _ in gt_match] + [
+        f"{pred_score[i]:.2f} / {pred_iou[i]:.2f}" for i in range(len(pred_match))
     ]
     # Set title if not provided
     title = title or "Ground Truth and Detections\n GT=green, pred=red, captions: score/IoU"
@@ -263,9 +350,24 @@ def display_differences(
 
 
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):
-    """
-    anchors: [n, (y1, x1, y2, x2)] list of anchors in image coordinates.
-    proposals: [n, 4] the same anchors but refined to fit objects better.
+    """Show anchors (or proposals) and their refinements on an image.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image.
+    rois : np.ndarray
+        ``[N, (y1, x1, y2, x2)]`` anchors or proposals, in image coordinates.
+    refined_rois : np.ndarray
+        ``[N, 4]`` the same boxes refined to fit the objects.
+    mask : np.ndarray
+        ``[N, height, width]`` masks of the boxes.
+    class_ids : np.ndarray
+        ``[N]`` class ids.
+    class_names : list[str]
+        Class names of the dataset.
+    limit : int
+        Maximum number of boxes to draw (random sample). By default 10.
     """
     masked_image = image.copy()
 
@@ -273,7 +375,7 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
     ids = np.arange(rois.shape[0], dtype=np.int32)
     ids = np.random.choice(ids, limit, replace=False) if ids.shape[0] > limit else ids
 
-    fig, ax = plt.subplots(1, figsize=(12, 12))
+    _, ax = plt.subplots(1, figsize=(12, 12))
     if rois.shape[0] > limit:
         plt.title(f"Showing {len(ids)} random ROIs out of {rois.shape[0]}")
     else:
@@ -284,11 +386,11 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
     ax.set_xlim(-50, image.shape[1] + 20)
     ax.axis("off")
 
-    for i, id in enumerate(ids):
+    for roi_id in ids:
         color = np.random.rand(3)
-        class_id = class_ids[id]
+        class_id = class_ids[roi_id]
         # ROI
-        y1, x1, y2, x2 = rois[id]
+        y1, x1, y2, x2 = rois[roi_id]
         p = patches.Rectangle(
             (x1, y1),
             x2 - x1,
@@ -301,7 +403,7 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
         ax.add_patch(p)
         # Refined ROI
         if class_id:
-            ry1, rx1, ry2, rx2 = refined_rois[id]
+            ry1, rx1, ry2, rx2 = refined_rois[roi_id]
             p = patches.Rectangle(
                 (rx1, ry1), rx2 - rx1, ry2 - ry1, linewidth=2, edgecolor=color, facecolor="none"
             )
@@ -327,8 +429,21 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
 
 # TODO: Replace with matplotlib equivalent?
 def draw_box(image, box, color):
-    """Draw 3-pixel width bounding boxes on the given image array.
-    color: list of 3 int values for RGB.
+    """Draw a 3-pixel wide box on an image array, in place.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image, modified in place.
+    box : np.ndarray
+        ``(y1, x1, y2, x2)`` box, in pixels.
+    color : list[int]
+        RGB color, channels in [0, 255].
+
+    Returns
+    -------
+    np.ndarray
+        The image with the box.
     """
     y1, x1, y2, x2 = box
     image[y1 : y1 + 2, x1:x2] = color
@@ -339,7 +454,21 @@ def draw_box(image, box, color):
 
 
 def display_top_masks(image, mask, class_ids, class_names, limit=4):
-    """Display the given image and the top few class masks."""
+    """Show an image and the masks of its most frequent classes.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image.
+    mask : np.ndarray
+        ``[height, width, N]`` instance masks.
+    class_ids : np.ndarray
+        ``[N]`` class ids of the masks.
+    class_names : list[str]
+        Class names of the dataset.
+    limit : int
+        Number of classes to show. By default 4.
+    """
     to_display = []
     titles = []
     to_display.append(image)
@@ -349,7 +478,9 @@ def display_top_masks(image, mask, class_ids, class_names, limit=4):
     mask_area = [np.sum(mask[:, :, np.where(class_ids == i)[0]]) for i in unique_class_ids]
     top_ids = [
         v[0]
-        for v in sorted(zip(unique_class_ids, mask_area), key=lambda r: r[1], reverse=True)
+        for v in sorted(
+            zip(unique_class_ids, mask_area, strict=True), key=lambda r: r[1], reverse=True
+        )
         if v[1] > 0
     ]
     # Generate images and titles
@@ -366,9 +497,14 @@ def display_top_masks(image, mask, class_ids, class_names, limit=4):
 def plot_precision_recall(AP, precisions, recalls):
     """Draw the precision-recall curve.
 
-    AP: Average precision at IoU >= 0.5
-    precisions: list of precision values
-    recalls: list of recall values
+    Parameters
+    ----------
+    AP : float
+        Average precision at IoU >= 0.5.
+    precisions : np.ndarray
+        Precision values.
+    recalls : np.ndarray
+        Recall values.
     """
     # Plot the Precision-Recall curve
     _, ax = plt.subplots(1)
@@ -379,25 +515,31 @@ def plot_precision_recall(AP, precisions, recalls):
 
 
 def plot_overlaps(gt_class_ids, pred_class_ids, pred_scores, overlaps, class_names, threshold=0.5):
-    """Draw a grid showing how ground truth objects are classified.
-    gt_class_ids: [N] int. Ground truth class IDs
-    pred_class_id: [N] int. Predicted class IDs
-    pred_scores: [N] float. The probability scores of predicted classes
-    overlaps: [pred_boxes, gt_boxes] IoU overlaps of predictions and GT boxes.
-    class_names: list of all class names in the dataset
-    threshold: Float. The prediction probability required to predict a class
+    """Draw a grid showing how ground-truth objects are classified.
+
+    Parameters
+    ----------
+    gt_class_ids : np.ndarray
+        ``[G]`` ground-truth class ids.
+    pred_class_ids : np.ndarray
+        ``[P]`` predicted class ids.
+    pred_scores : np.ndarray
+        ``[P]`` prediction confidences.
+    overlaps : np.ndarray
+        ``[P, G]`` IoU overlaps of predictions and ground-truth boxes.
+    class_names : list[str]
+        Class names of the dataset.
+    threshold : float
+        Confidence needed to predict a class. By default 0.5.
     """
     gt_class_ids = gt_class_ids[gt_class_ids != 0]
     pred_class_ids = pred_class_ids[pred_class_ids != 0]
 
     plt.figure(figsize=(12, 10))
-    plt.imshow(overlaps, interpolation="nearest", cmap=plt.cm.Blues)
+    plt.imshow(overlaps, interpolation="nearest", cmap="Blues")
     plt.yticks(
         np.arange(len(pred_class_ids)),
-        [
-            f"{class_names[int(id)]} ({pred_scores[i]:.2f})"
-            for i, id in enumerate(pred_class_ids)
-        ],
+        [f"{class_names[int(id)]} ({pred_scores[i]:.2f})" for i, id in enumerate(pred_class_ids)],
     )
     plt.xticks(
         np.arange(len(gt_class_ids)), [class_names[int(id)] for id in gt_class_ids], rotation=90
@@ -434,18 +576,31 @@ def draw_boxes(
     title="",
     ax=None,
 ):
-    """Draw bounding boxes and segmentation masks with different
-    customizations.
+    """Draw boxes and masks, with optional refinements, captions and visibility levels.
 
-    boxes: [N, (y1, x1, y2, x2, class_id)] in image coordinates.
-    refined_boxes: Like boxes, but draw with solid lines to show
-        that they're the result of refining 'boxes'.
-    masks: [N, height, width]
-    captions: List of N titles to display on each box
-    visibilities: (optional) List of values of 0, 1, or 2. Determine how
-        prominent each bounding box should be.
-    title: An optional title to show over the image
-    ax: (optional) Matplotlib axis to draw on.
+    Parameters
+    ----------
+    image : np.ndarray
+        ``[height, width, 3]`` image.
+    boxes : np.ndarray | None
+        ``[N, (y1, x1, y2, x2)]`` boxes in image coordinates, drawn dashed. By default ``None``.
+    refined_boxes : np.ndarray | None
+        Like ``boxes``, refined; drawn solid. By default ``None``.
+    masks : np.ndarray | None
+        ``[N, height, width]`` masks. By default ``None``.
+    captions : list[str] | None
+        One caption per box. By default ``None``.
+    visibilities : list[int] | None
+        One level per box: 0 (faint), 1 or 2 (prominent). By default ``None``.
+    title : str
+        Figure title. By default ``""``.
+    ax : matplotlib.axes.Axes | None
+        Axes to draw on. By default ``None``.
+
+    Raises
+    ------
+    ValueError
+        If a visibility is not 0, 1 or 2.
     """
     # Number of boxes
     assert boxes is not None or refined_boxes is not None
@@ -482,6 +637,8 @@ def draw_boxes(
             color = colors[i]
             style = "solid"
             alpha = 1
+        else:
+            raise ValueError(f"visibility must be 0, 1 or 2, got {visibility}")
 
         # Boxes
         if boxes is not None:
@@ -537,7 +694,7 @@ def draw_boxes(
             # Pad to ensure proper polygons for masks that touch image edges.
             padded_mask = np.zeros((mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
             padded_mask[1:-1, 1:-1] = mask
-            contours = find_contours(padded_mask, 0.5)
+            contours = measure.find_contours(padded_mask, 0.5)
             for verts in contours:
                 # Subtract the padding and flip (y, x) to (x, y)
                 verts = np.fliplr(verts) - 1
@@ -547,8 +704,12 @@ def draw_boxes(
 
 
 def display_table(table):
-    """Display values in a table format.
-    table: an iterable of rows, and each row is an iterable of values.
+    """Show rows of values as an HTML table in a notebook.
+
+    Parameters
+    ----------
+    table : list
+        Rows, each an iterable of values.
     """
     html = ""
     for row in table:
@@ -561,19 +722,23 @@ def display_table(table):
 
 
 def display_weight_stats(model):
-    """Scans all the weights in the model and returns a list of tuples
-    that contain stats about each weight.
+    """Show min, max and standard deviation of every weight of a model, flagging suspicious ones.
+
+    Parameters
+    ----------
+    model : MaskRCNN
+        The model whose Keras weights to inspect.
     """
     layers = model.get_trainable_layers()
     table = [["WEIGHT NAME", "SHAPE", "MIN", "MAX", "STD"]]
-    for l in layers:
-        weight_values = l.get_weights()  # list of Numpy arrays
-        weight_tensors = l.weights  # list of TF tensors
+    for layer in layers:
+        weight_values = layer.get_weights()  # list of Numpy arrays
+        weight_tensors = layer.weights  # list of TF tensors
         for i, w in enumerate(weight_values):
             weight_name = weight_tensors[i].name
             # Detect problematic layers. Exclude biases of conv layers.
             alert = ""
-            if w.min() == w.max() and not (l.__class__.__name__ == "Conv2D" and i == 1):
+            if w.min() == w.max() and not (layer.__class__.__name__ == "Conv2D" and i == 1):
                 alert += "<span style='color:red'>*** dead?</span>"
             if np.abs(w.min()) > 1000 or np.abs(w.max()) > 1000:
                 alert += "<span style='color:red'>*** Overflow?</span>"

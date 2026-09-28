@@ -1,12 +1,17 @@
-"""
-Mask R-CNN
-Run a model exported with ``MaskRCNN.save(export_dir)`` (``config.json`` + TF SavedModel).
+"""Run a model exported with ``MaskRCNN.save`` (``config.json`` + TF SavedModel).
 
-Only needs TensorFlow to load the SavedModel (the ``serve`` extra, any TensorFlow 2.x): the
+Only TensorFlow is needed to load the SavedModel (the ``serve`` extra, any TensorFlow 2.x): the
 pre/post-processing comes from ``mrcnn.inference``, so services don't need the training stack.
 
+Copyright (c) 2017 Matterport, Inc.
+Licensed under the MIT License (see LICENSE for details).
+
+Examples
+--------
+Run an export on one RGB image::
+
     predictor = SavedModelPredictor("export_dir")
-    result = predictor.detect(image)   # rois, class_ids, scores, masks (like MaskRCNN.detect)
+    result = predictor.detect(image)  # rois, class_ids, scores, masks, like MaskRCNN.detect
 """
 
 import json
@@ -19,7 +24,23 @@ from mrcnn import inference
 
 
 def load_config(export_dir):
-    """The exported ``config.json`` as an object with the ``Config`` attribute names."""
+    """Read an exported ``config.json`` as an object with the ``Config`` attribute names.
+
+    Parameters
+    ----------
+    export_dir : str | os.PathLike
+        Export directory written by ``MaskRCNN.save``.
+
+    Returns
+    -------
+    SimpleNamespace
+        The settings, with ``MEAN_PIXEL`` as a numpy array.
+
+    Raises
+    ------
+    ValueError
+        If the export uses the training-only ``"crop"`` resize mode.
+    """
     with open(os.path.join(export_dir, "config.json"), encoding="utf-8") as f:
         values = json.load(f)
     if values["IMAGE_RESIZE_MODE"] == "crop":
@@ -29,7 +50,20 @@ def load_config(export_dir):
 
 
 class SavedModelPredictor:
-    """Detects objects in one image at a time with an exported SavedModel."""
+    """Detect objects in one image at a time with an exported SavedModel.
+
+    Parameters
+    ----------
+    export_dir : str | os.PathLike
+        Export directory written by ``MaskRCNN.save``.
+
+    Attributes
+    ----------
+    config : SimpleNamespace
+        The exported settings (``config.json``).
+    """
+
+    config: SimpleNamespace
 
     def __init__(self, export_dir):
         import tensorflow as tf  # pylint: disable=import-outside-toplevel  # optional: `serve` extra
@@ -41,8 +75,24 @@ class SavedModelPredictor:
         self._anchors = {}
 
     def detect(self, image):
-        """image: [H, W, 3] RGB. Returns a dict like ``MaskRCNN.detect``: rois [N, (y1, x1, y2,
-        x2)], class_ids [N], scores [N], masks [H, W, N], in original image coordinates.
+        """Detect the objects in one image.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            RGB image, shape ``(height, width, 3)``.
+
+        Returns
+        -------
+        dict
+            Like ``MaskRCNN.detect``, in original image coordinates: ``rois``
+            ``[N, (y1, x1, y2, x2)]``, ``class_ids`` ``[N]``, ``scores`` ``[N]`` and ``masks``
+            ``[height, width, N]``.
+
+        Raises
+        ------
+        ValueError
+            If the image is not ``(height, width, 3)``.
         """
         if image.ndim != 3 or image.shape[2] != 3:
             raise ValueError(f"Expected an RGB image of shape [H, W, 3], got {image.shape}")
@@ -62,6 +112,18 @@ class SavedModelPredictor:
         return {"rois": rois, "class_ids": class_ids, "scores": scores, "masks": masks}
 
     def _get_anchors(self, image_shape):
+        """Get the normalized anchor pyramid for a molded image shape, computed once per shape.
+
+        Parameters
+        ----------
+        image_shape : tuple
+            ``(height, width)`` of the molded image.
+
+        Returns
+        -------
+        np.ndarray
+            ``[N, (y1, x1, y2, x2)]`` anchors in normalized coordinates, float32.
+        """
         key = tuple(image_shape)
         if key not in self._anchors:
             anchors = inference.pyramid_anchors(self.config, image_shape)

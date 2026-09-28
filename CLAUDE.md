@@ -136,7 +136,8 @@ def decode(rle: str, height: int, width: int = 1) -> np.ndarray:
   `print` in library code, error messages that say what to do.
 - Keep functions small enough for pylint's limits; split them rather than raising the limits.
 - No duplicated code across repositories: shared code goes in a released package
-  (fashion-seg-contract for the model's response, maskrcnn-matterport for Matterport code).
+  (fashion-seg-contract for the model's request and response, maskrcnn-matterport for Matterport
+  code).
 
 ### Tests
 

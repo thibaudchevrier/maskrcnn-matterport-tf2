@@ -48,8 +48,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --locked --extra train
-      - run: uv run pytest -p no:warnings
+      # All extras, like `make install`: doctests import every module (visualize needs [viz]).
+      - run: make install
+      - run: make test
 
   inference:
     # The base install must work without TensorFlow, on numpy 2.

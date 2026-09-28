@@ -1,3 +1,9 @@
+## v0.3.1 (2026-09-28)
+
+### Refactor
+
+- **mrcnn**: numpy docstrings and fixes found by the new lint
+
 ## v0.3.0 (2026-09-27)
 
 ### BREAKING CHANGE

@@ -70,6 +70,7 @@ skip-checking-short-docstrings = false
 arg-type-hints-in-signature = false
 arg-type-hints-in-docstring = true
 check-return-types = false
+check-yield-types = false
 
 [tool.commitizen]
 name = "cz_conventional_commits"
@@ -78,3 +79,30 @@ tag_format = "v$version"
 annotated_tag = true
 update_changelog_on_bump = true
 major_version_zero = true        # breaking changes bump the minor version while < 1.0
+
+[tool.pylint.main]
+py-version = "3.10"
+
+[tool.pylint."messages control"]
+# Exception to the shared standards, for the 2021 Matterport code only (see CLAUDE.md): its
+# network-building functions and math-style names (N, P2, C5, the upper-case Config settings) are
+# kept close to upstream instead of being restructured for pylint's naming and complexity limits.
+# New code follows the shared standards and is reviewed for size and naming by hand.
+disable = [
+    "invalid-name",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-locals",
+    "too-many-statements",
+    "too-many-branches",
+    "too-many-lines",
+    "too-many-instance-attributes",
+    "too-few-public-methods",
+    "fixme",               # upstream TODO notes, kept as documentation
+    "duplicate-code",      # numpy and TensorFlow variants of the same box helpers
+    "wrong-import-order",  # import order is ruff's job
+    "ungrouped-imports",
+]
+
+[tool.pylint.format]
+max-line-length = 100

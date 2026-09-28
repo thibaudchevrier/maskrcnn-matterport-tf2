@@ -1,9 +1,51 @@
-# Install once: uv run pre-commit install --hook-type commit-msg
+# Single source of truth for code quality: `make lint` and the CI lint job both run
+# `pre-commit run --all-files`, so local hooks and CI check exactly the same things.
+# Install once: make hooks (after `make install`: pylint needs the train and viz extras).
 # Hooks use `uv run --no-sync`: during a partial commit pre-commit hides unstaged changes (e.g. a
 # uv.lock matching staged pyproject.toml edits); syncing would then try to rewrite the lockfile.
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files  # weights (.h5) belong in releases or DVC, not git
+        args: [--maxkb=1024]
   - repo: local
     hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --no-sync ruff format
+        language: system
+        types: [python]
+      - id: ruff-check
+        name: ruff check (lint + numpy docstrings)
+        entry: uv run --no-sync ruff check --fix
+        language: system
+        types: [python]
+      - id: pydoclint
+        name: pydoclint (documented parameters, returns, raises)
+        entry: uv run --no-sync pydoclint
+        language: system
+        types: [python]
+        exclude: ^tests/
+      - id: pylint
+        name: pylint
+        entry: uv run --no-sync pylint
+        language: system
+        types: [python]
+        exclude: ^tests/
+      # Tests: pytest fixtures shadow names (redefined-outer-name); pylint infers list lengths from
+      # their empty literal, so `[result] = model.detect(...)` is a false positive.
+      - id: pylint-tests
+        name: pylint (tests)
+        entry: uv run --no-sync pylint --disable=redefined-outer-name,unbalanced-tuple-unpacking
+        language: system
+        types: [python]
+        files: ^tests/
       - id: commitizen
         name: conventional commit message
         entry: uv run --no-sync cz check --allow-abort --commit-msg-file

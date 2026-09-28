@@ -27,6 +27,17 @@ jobs:
           uvx --from commitizen==4.19.0 cz check
           --rev-range ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
 
+  quality:
+    name: Lint (pre-commit hooks = make lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: make install
+      - run: make lint
+
   smoke-train:
     name: Train, export and serve (Python 3.11, TF 2.15)
     runs-on: ubuntu-latest
